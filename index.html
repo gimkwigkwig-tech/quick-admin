@@ -338,6 +338,27 @@ tr:last-child td{border-bottom:none}tr:hover td{background:rgba(255,255,255,.015
   </div>
 </div>
 
+<!-- EDIT ORG MODAL — 조직 정보 수정 -->
+<div class="modal-bg" id="modal-edit-org">
+  <div class="modal-box">
+    <div class="mh"><div class="mt" id="edit-org-title">조직 정보 수정</div><button class="mc" onclick="closeModal('modal-edit-org')">×</button></div>
+    <input type="hidden" id="eo-id" value="">
+    <div class="alert a-blue">📝 조직명, 텔레그램 ID, 운영시간, 담당자 정보를 수정할 수 있습니다</div>
+    <div class="fg"><label class="fl">조직명 *</label><input class="fi2" id="eo-name" placeholder="조직명"></div>
+    <div class="fg"><label class="fl">텔레그램 아이디 *</label>
+      <div class="fd">고객센터 링크로 자동 연결됩니다</div>
+      <input class="fi2" id="eo-tg" placeholder="@telegram_id">
+    </div>
+    <div class="fg"><label class="fl">운영 시간</label><input class="fi2" id="eo-hours" placeholder="10:00~18:00"></div>
+    <div class="fg"><label class="fl">담당자</label><input class="fi2" id="eo-contact" placeholder="담당자명"></div>
+    <div class="fg"><label class="fl">담당자 연락처</label><input class="fi2" id="eo-phone" placeholder="010-0000-0000"></div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-g" style="flex:1" onclick="closeModal('modal-edit-org')">취소</button>
+      <button class="btn btn-p" style="flex:1" onclick="saveEditOrg()">저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- NOTICE MODAL -->
 <div class="modal-bg" id="modal-notice">
   <div class="modal-box">
@@ -1238,8 +1259,31 @@ function renderPayment(){
   +'<div class="scard" style="border-top:2px solid var(--accent)"><div class="scard-top"><div class="slabel">최근 30일 매출</div><div class="sicon" style="background:rgba(240,180,41,.12);color:var(--accent)">📅</div></div><div class="sval" style="color:var(--accent)">₩'+monthRev.toLocaleString()+'</div><div class="ssub">누적 ₩'+totalRev.toLocaleString()+'</div></div>'
   +'</div>';
   
-  // 일별 매출 차트
-  html+='<div class="card" style="padding:14px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div class="card-title">📊 일별 매출 추이 (최근 30일)</div><span style="font-size:11px;color:var(--text2)">승인된 결제만 집계</span></div><canvas id="payDayChart" height="100"></canvas></div>';
+  // 일별 매출 — 차트 + 카드 형식 (둘 다)
+  var sortedDays=Object.keys(dayRev).sort().reverse(); // 최신순
+  var hasAnyRev=sortedDays.some(k=>dayRev[k]>0);
+  
+  html+='<div class="card" style="padding:14px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div class="card-title">📅 일별 매출 — 최근 30일</div><span style="font-size:11px;color:var(--text2)">승인된 결제만 집계</span></div>';
+  
+  if(!hasAnyRev){
+    html+='<div class="empty" style="padding:20px"><div style="font-size:24px;opacity:.3">📊</div><div style="font-size:12px;color:var(--text3);margin-top:6px">최근 30일 동안 승인된 결제가 없습니다</div></div>';
+  } else {
+    // 일별 카드 (가로 스크롤) — 매출 있는 날만
+    html+='<div style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;border-bottom:1px solid var(--border);margin-bottom:10px">';
+    sortedDays.filter(k=>dayRev[k]>0).forEach(k=>{
+      var d=new Date(k);
+      var dateLabel=(d.getMonth()+1)+'월 '+d.getDate()+'일';
+      var dayLabel=['일','월','화','수','목','금','토'][d.getDay()];
+      html+='<div style="flex-shrink:0;min-width:90px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:8px 10px;text-align:center">'
+        +'<div style="font-size:9px;color:var(--text3)">'+dateLabel+' ('+dayLabel+')</div>'
+        +'<div style="font-size:13px;font-weight:700;color:var(--green);margin-top:3px">₩'+dayRev[k].toLocaleString()+'</div>'
+        +'</div>';
+    });
+    html+='</div>';
+    // 차트
+    html+='<div style="height:100px"><canvas id="payDayChart"></canvas></div>';
+  }
+  html+='</div>';
   
   html+='<div class="fbar">'+['all','pending','approved','rejected'].map(function(f){
     var cnt=visPayments.filter(p=>f==='all'||p.status===f).length;
@@ -1587,7 +1631,7 @@ function renderRevenue(){
     return html;
   }
   
-  // 드릴다운 모드 — 특정 노드 산하만 표시
+  // 드릴다운 모드 — 특정 노드 산하 트리 표시
   var rootNodes=[];
   if(revDrillNode){
     var drillNode=branches.find(b=>b.id===revDrillNode);
@@ -1599,30 +1643,33 @@ function renderRevenue(){
     else if(role==='branch')rootNodes=bls;
   }
   
-  function renderRev(b,depth){
+  function renderRev(b,depth,isDrillRoot){
     var t=calcBranchTotal(b);
     var children=branches.filter(x=>x.parent_id===b.id&&(vis===null||vis.indexOf(x.id)>=0));
     var ico={master:'🏢',branch:'🏬',sub:'📍'};
     var lbl={master:'총판',branch:'지사',sub:'지점'};
     var col={master:'var(--c-master)',branch:'var(--c-branch)',sub:'var(--c-sub)'};
     var directRev=parseFloat(b.revenue||0)+(memberRevenue[b.id]||0);
-    var canDrill=children.length>0;
+    // 드릴다운 가능: 자식이 있고, 현재 드릴다운된 노드 자체가 아닐 때만 (이미 드릴된 노드는 다시 누를 필요 없음)
+    var canDrill=children.length>0&&!isDrillRoot;
     
     var h='<div class="rv-node" style="margin-left:'+(depth*14)+'px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;'+(canDrill?'cursor:pointer;transition:.15s':'')+'" '
       +(canDrill?'onclick="revDrillNode='+b.id+';navigate(\'revenue\')" onmouseover="this.style.borderColor=\''+col[b.type]+'\'" onmouseout="this.style.borderColor=\'var(--border)\'"':'')+'>'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">'
-        +'<div style="flex:1"><div style="font-weight:700;font-size:13px"><span class="badge bg-'+b.type+'">'+lbl[b.type]+'</span> '+ico[b.type]+' '+b.name+(canDrill?' <span style="font-size:10px;color:'+col[b.type]+'">▶ 클릭</span>':'')+'</div>'
+        +'<div style="flex:1"><div style="font-weight:700;font-size:13px"><span class="badge bg-'+b.type+'">'+lbl[b.type]+'</span> '+ico[b.type]+' '+b.name+(canDrill?' <span style="font-size:10px;color:'+col[b.type]+'">▶ 산하 보기</span>':isDrillRoot&&children.length>0?' <span style="font-size:10px;color:var(--accent)">📂 펼침</span>':'')+'</div>'
         +'<div style="font-size:10px;color:var(--text2);margin-top:3px">직접 ₩'+directRev.toLocaleString()
         +(children.length>0?' · 산하 ₩'+(t.total-directRev).toLocaleString():'')
         +' · 회원 '+t.memCnt+'명</div></div>'
         +'<div style="text-align:right"><div style="font-size:9px;color:var(--text3)">합계 매출</div><div style="font-size:16px;font-weight:700;color:'+col[b.type]+'">₩'+t.total.toLocaleString()+'</div></div>'
       +'</div></div>';
     
-    children.forEach(c=>{h+=renderRev(c,depth+1);});
+    // 모든 자식을 항상 펼침 (드릴다운 모드면 더 깊게)
+    children.forEach(c=>{h+=renderRev(c,depth+1,false);});
     return h;
   }
   
-  rootNodes.forEach(n=>{html+=renderRev(n,0);});
+  // 드릴다운 모드면 그 노드를 isDrillRoot=true 로 표시
+  rootNodes.forEach(n=>{html+=renderRev(n,0,!!revDrillNode);});
   
   return html;
 }
@@ -1741,6 +1788,54 @@ async function deleteBranch(id,name){
     navigate(page);
   }catch(e){
     showToast('삭제 실패: '+e.message,'error');
+  }
+}
+
+// ★ 조직 정보 수정 (이름/텔레그램/운영시간/담당자 등)
+function openEditOrg(id){
+  var b=branches.find(x=>x.id===id);
+  if(!b){showToast('조직을 찾을 수 없습니다','error');return;}
+  // 권한 체크
+  if(role!=='dev'){
+    if(role==='master'&&b.id!==realBranchId&&!getDescendantBranchIds(realBranchId).includes(b.id)){
+      showToast('권한이 없습니다','error');return;
+    }
+  }
+  document.getElementById('eo-id').value=b.id;
+  document.getElementById('edit-org-title').textContent=({master:'총판',branch:'지사',sub:'지점'}[b.type]||'조직')+' 정보 수정 — '+b.name;
+  document.getElementById('eo-name').value=b.name||'';
+  document.getElementById('eo-tg').value=b.telegram_id||'';
+  document.getElementById('eo-hours').value=b.operating_hours||'';
+  document.getElementById('eo-contact').value=b.manager_name||'';
+  document.getElementById('eo-phone').value=b.manager_phone||'';
+  document.getElementById('modal-edit-org').classList.add('open');
+}
+
+async function saveEditOrg(){
+  var id=parseInt(document.getElementById('eo-id').value);
+  var name=document.getElementById('eo-name').value.trim();
+  var tg=document.getElementById('eo-tg').value.trim();
+  if(!name){showToast('조직명을 입력하세요','error');return;}
+  if(!tg){showToast('텔레그램 아이디를 입력하세요','error');return;}
+  if(!tg.startsWith('@'))tg='@'+tg;
+  
+  try{
+    const payload={
+      name:name,
+      telegram_id:tg,
+      operating_hours:document.getElementById('eo-hours').value||'10:00~18:00',
+      manager_name:document.getElementById('eo-contact').value||'담당자',
+      manager_phone:document.getElementById('eo-phone').value||null,
+      updated_at:new Date().toISOString()
+    };
+    const {error}=await sb.from('branches').update(payload).eq('id',id);
+    if(error)throw error;
+    closeModal('modal-edit-org');
+    showToast('조직 정보가 수정되었습니다','success');
+    await loadAllData();
+    navigate(page);
+  }catch(e){
+    showToast('수정 실패: '+e.message,'error');
   }
 }
 
@@ -1906,28 +2001,42 @@ function renderOrgManage(){
   // 노드별 액션 버튼 (권한별)
   function nodeActions(b){
     var actions='';
+    // ★ 수정 버튼 헬퍼 — 권한 있는 경우만
+    function canEdit(){
+      if(role==='dev')return true;
+      if(role==='master'){
+        // 자기 자신 + 산하 모두 수정 가능
+        return b.id===realBranchId||getDescendantBranchIds(realBranchId).indexOf(b.id)>=0;
+      }
+      return false;
+    }
+    
     if(role==='dev'){
-      // 개발자: 모든 노드에 +/삭제 가능
+      // 개발자: 모든 노드에 +/수정/삭제 가능
       if(b.type==='master'){
         actions+='<button class="btn btn-b btn-sm" onclick="openOrgModal(\'branch\','+b.id+')">+ 지사</button>';
         actions+='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\','+b.id+')">+ 직속지점</button>';
       }else if(b.type==='branch'){
         actions+='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\','+b.id+')">+ 지점</button>';
       }
+      actions+='<button class="btn btn-g btn-sm" onclick="openEditOrg('+b.id+')">✏️ 수정</button>';
       actions+='<button class="btn btn-d btn-sm" onclick="deleteBranch('+b.id+',\''+b.name.replace(/\'/g,'')+'\')">삭제</button>';
     }else if(role==='master'){
-      // 총판: 자기 산하만 + 가능
+      // 총판: 자기 산하 모두 수정/+/삭제 가능
       if(b.type==='master'&&b.id===realBranchId){
         actions+='<button class="btn btn-b btn-sm" onclick="openOrgModal(\'branch\','+b.id+')">+ 지사</button>';
         actions+='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\','+b.id+')">+ 직속지점</button>';
+        actions+='<button class="btn btn-g btn-sm" onclick="openEditOrg('+b.id+')">✏️ 수정</button>';
       }else if(b.type==='branch'){
         actions+='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\','+b.id+')">+ 지점</button>';
+        if(canEdit())actions+='<button class="btn btn-g btn-sm" onclick="openEditOrg('+b.id+')">✏️ 수정</button>';
         actions+='<button class="btn btn-d btn-sm" onclick="deleteBranch('+b.id+',\''+b.name.replace(/\'/g,'')+'\')">삭제</button>';
       }else if(b.type==='sub'){
+        if(canEdit())actions+='<button class="btn btn-g btn-sm" onclick="openEditOrg('+b.id+')">✏️ 수정</button>';
         actions+='<button class="btn btn-d btn-sm" onclick="deleteBranch('+b.id+',\''+b.name.replace(/\'/g,'')+'\')">삭제</button>';
       }
     }else if(role==='branch'){
-      // 지사: 자기 산하 지점만 가능
+      // 지사: 자기 산하 지점만 가능 (수정은 자기와 산하)
       if(b.type==='branch'&&b.id===realBranchId){
         actions+='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\','+b.id+')">+ 지점</button>';
       }else if(b.type==='sub'){
