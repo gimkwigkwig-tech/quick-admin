@@ -308,6 +308,36 @@ tr:last-child td{border-bottom:none}tr:hover td{background:rgba(255,255,255,.015
   </div>
 </div>
 
+<!-- CREATE ADMIN ACCOUNT MODAL -->
+<div class="modal-bg" id="modal-create-account">
+  <div class="modal-box">
+    <div class="mh"><div class="mt">어드민 계정 생성</div><button class="mc" onclick="closeModal('modal-create-account')">×</button></div>
+    <div class="alert a-yellow">⚠️ 초기 비밀번호를 담당자에게 안전하게 전달하세요. 담당자가 내 설정에서 직접 변경 가능합니다</div>
+    <div class="fg"><label class="fl">역할 *</label>
+      <select class="fi2" id="ca-role" onchange="buildOrgOptions(this.value)">
+        <option value="master">총판</option>
+        <option value="branch">지사</option>
+        <option value="sub">지점</option>
+      </select>
+    </div>
+    <div class="fg" id="ca-org-wrap">
+      <label class="fl" id="ca-org-label">소속 조직 *</label>
+      <select class="fi2" id="ca-org">
+        <option value="">조직 선택...</option>
+      </select>
+    </div>
+    <div class="fg"><label class="fl">담당자 이름 *</label><input class="fi2" id="ca-name" placeholder="담당자 이름"></div>
+    <div class="fg"><label class="fl">아이디 *</label><input class="fi2" id="ca-username" placeholder="로그인 아이디 (영문/숫자)"></div>
+    <div class="fg" style="margin:0"><label class="fl">초기 비밀번호 *</label>
+      <input class="fi2" type="password" id="ca-password" placeholder="6자 이상">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-g" style="flex:1" onclick="closeModal('modal-create-account')">취소</button>
+      <button class="btn btn-p" style="flex:1" onclick="saveAccount()">계정 생성</button>
+    </div>
+  </div>
+</div>
+
 <!-- NOTICE MODAL -->
 <div class="modal-bg" id="modal-notice">
   <div class="modal-box">
@@ -637,6 +667,7 @@ function buildSidebar(){
       {p:'members',ic:'users',l:'회원 관리'},
       {p:'license',ic:'clock',l:'이용권 관리'},
       {p:'payment',ic:'card',l:'결제 관리'},
+      {p:'revenue',ic:'chart',l:'매출 현황'},
       {s:'조직'},
       {p:'org-manage',ic:'tree',l:'지점 관리 (전체)'},
       {s:'운영'},
@@ -651,6 +682,7 @@ function buildSidebar(){
       {p:'members',ic:'users',l:'회원 관리'},
       {p:'license',ic:'clock',l:'이용권 관리'},
       {p:'payment',ic:'card',l:'결제 관리'},
+      {p:'revenue',ic:'chart',l:'매출 현황'},
       {s:'조직'},
       {p:'my-orgs',ic:'tree',l:'지사/지점 관리'},
       {s:'운영'},
@@ -665,6 +697,7 @@ function buildSidebar(){
       {p:'members',ic:'users',l:'회원 관리'},
       {p:'license',ic:'clock',l:'이용권 관리'},
       {p:'payment',ic:'card',l:'결제 관리'},
+      {p:'revenue',ic:'chart',l:'매출 현황'},
       {s:'조직'},
       {p:'my-orgs',ic:'tree',l:'지점 관리'},
       {s:'설정'},
@@ -676,6 +709,7 @@ function buildSidebar(){
       {p:'members',ic:'users',l:'회원 관리'},
       {p:'license',ic:'clock',l:'이용권 관리'},
       {p:'payment',ic:'card',l:'결제 관리'},
+      {p:'revenue',ic:'chart',l:'내 매출'},
       {s:'설정'},
       {p:'my-settings',ic:'cog',l:'내 설정'}
     ]
@@ -689,6 +723,7 @@ function buildSidebar(){
     card:'<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
     bell:'<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
     tree:'<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    chart:'<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
     key:'<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>',
     cog:'<circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.42 1.42M4.93 4.93l1.42 1.42M19.07 19.07l-1.42-1.42M4.93 19.07l1.42-1.42M12 2v2M12 20v2M2 12h2M20 12h2"/>'
   };
@@ -720,6 +755,7 @@ function navigate(pg){
     members:renderMembers,
     license:renderLicense,
     payment:renderPayment,
+    revenue:renderRevenue,
     notices:renderNotices,
     settings:renderSettings,
     'org-manage':renderOrgManage,
@@ -1266,6 +1302,310 @@ async function saveAppSettings(){
 }
 
 // =====================================================================
+//   REVENUE — 매출 현황 (권한별 산하 매출 합계)
+// =====================================================================
+function renderRevenue(){
+  var vis=getVisibleBranchIds();
+  
+  // 회원별 매출 (결제 매출)
+  var memberRevenue={};
+  payments.filter(p=>p.status==='approved').forEach(p=>{
+    if(!p.branch_id)return;
+    memberRevenue[p.branch_id]=(memberRevenue[p.branch_id]||0)+(p.amount||0);
+  });
+  
+  // 지점별 회원 수
+  var memberCntByBranch={};
+  members.forEach(m=>{
+    if(m.branch_id)memberCntByBranch[m.branch_id]=(memberCntByBranch[m.branch_id]||0)+1;
+  });
+  
+  // 산하 합계 계산
+  function calcBranchTotal(b){
+    var ids=getDescendantBranchIds(b.id);
+    var revSum=0,memCnt=0,paySum=0;
+    ids.forEach(id=>{
+      var node=branches.find(x=>x.id===id);
+      if(node)revSum+=parseFloat(node.revenue||0);
+      memCnt+=(memberCntByBranch[id]||0);
+      paySum+=(memberRevenue[id]||0);
+    });
+    return {revSum:revSum,memCnt:memCnt,paySum:paySum,total:revSum+paySum};
+  }
+  
+  var visBranches=vis===null?branches:branches.filter(b=>vis.indexOf(b.id)>=0);
+  var totalRev=visBranches.reduce((s,b)=>s+parseFloat(b.revenue||0),0);
+  var totalPay=Object.keys(memberRevenue).filter(bid=>vis===null||vis.indexOf(parseInt(bid))>=0).reduce((s,bid)=>s+memberRevenue[bid],0);
+  
+  var titleMap={dev:'전체 매출 현황',master:'본인 + 산하 매출',branch:'본인 + 산하 지점 매출',sub:'내 매출'};
+  var html='<div class="ph"><div><h1>'+(titleMap[role]||'매출')+'</h1><p>총 매출 = 직접 매출 + 결제 매출</p></div></div>';
+  
+  // 합계 카드
+  html+='<div class="sgrid sg3" style="margin-bottom:14px">'
+    +'<div class="scard" style="border-top:2px solid var(--accent)"><div class="scard-top"><div class="slabel">총 매출</div><div class="sicon" style="background:rgba(240,180,41,.12);color:var(--accent)">📊</div></div><div class="sval" style="color:var(--accent)">₩'+(totalRev+totalPay).toLocaleString()+'</div></div>'
+    +'<div class="scard"><div class="scard-top"><div class="slabel">직접 매출 (지점별)</div><div class="sicon" style="background:rgba(46,204,113,.12);color:var(--green)">💰</div></div><div class="sval" style="color:var(--green)">₩'+totalRev.toLocaleString()+'</div></div>'
+    +'<div class="scard"><div class="scard-top"><div class="slabel">결제 매출 (이용권)</div><div class="sicon" style="background:rgba(41,128,185,.12);color:var(--blue)">💳</div></div><div class="sval" style="color:var(--blue)">₩'+totalPay.toLocaleString()+'</div></div>'
+    +'</div>';
+  
+  if(visBranches.length===0){
+    html+='<div class="empty"><div class="empty-icon">📊</div><div class="empty-txt">집계할 매출 데이터가 없습니다</div></div>';
+    return html;
+  }
+  
+  // 지점 시점은 본인만
+  if(role==='sub'){
+    var me=branches.find(b=>vis&&vis[0]===b.id);
+    if(me){
+      var t=calcBranchTotal(me);
+      html+='<div class="card"><div class="card-head"><div class="card-title">📍 '+me.name+' 매출 상세</div></div><div class="card-body">'
+        +'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><span>직접 매출</span><strong style="color:var(--green)">₩'+parseFloat(me.revenue||0).toLocaleString()+'</strong></div>'
+        +'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><span>결제 매출</span><strong style="color:var(--blue)">₩'+(memberRevenue[me.id]||0).toLocaleString()+'</strong></div>'
+        +'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><span>회원 수</span><strong>'+(memberCntByBranch[me.id]||0)+'명</strong></div>'
+        +'<div style="display:flex;justify-content:space-between;padding:14px 0 4px;border-top:1px solid var(--border);margin-top:6px"><span style="font-weight:700">합계</span><strong style="color:var(--accent);font-size:18px">₩'+t.total.toLocaleString()+'</strong></div>'
+        +'</div></div>';
+    }
+    return html;
+  }
+  
+  // 트리 형태로 표시 (계층별)
+  var masters=visBranches.filter(b=>b.type==='master');
+  var bls=visBranches.filter(b=>b.type==='branch');
+  
+  function renderRev(b,depth){
+    var t=calcBranchTotal(b);
+    var children=branches.filter(x=>x.parent_id===b.id&&(vis===null||vis.indexOf(x.id)>=0));
+    var ico={master:'🏢',branch:'🏬',sub:'📍'};
+    var lbl={master:'총판',branch:'지사',sub:'지점'};
+    var col={master:'var(--c-master)',branch:'var(--c-branch)',sub:'var(--c-sub)'};
+    var directRev=parseFloat(b.revenue||0)+(memberRevenue[b.id]||0);
+    
+    var h='<div class="rv-node" style="margin-left:'+(depth*14)+'px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">'
+        +'<div style="flex:1"><div style="font-weight:700;font-size:13px"><span class="badge bg-'+b.type+'">'+lbl[b.type]+'</span> '+ico[b.type]+' '+b.name+'</div>'
+        +'<div style="font-size:10px;color:var(--text2);margin-top:3px">직접 ₩'+directRev.toLocaleString()
+        +(children.length>0?' · 산하 ₩'+(t.total-directRev).toLocaleString():'')
+        +' · 회원 '+t.memCnt+'명</div></div>'
+        +'<div style="text-align:right"><div style="font-size:9px;color:var(--text3)">합계 매출</div><div style="font-size:16px;font-weight:700;color:'+col[b.type]+'">₩'+t.total.toLocaleString()+'</div></div>'
+      +'</div></div>';
+    
+    children.forEach(c=>{h+=renderRev(c,depth+1);});
+    return h;
+  }
+  
+  if(role==='dev'||role==='master'){
+    masters.forEach(m=>{html+=renderRev(m,0);});
+  }else if(role==='branch'){
+    bls.forEach(b=>{html+=renderRev(b,0);});
+  }
+  
+  return html;
+}
+
+// =====================================================================
+//   ORG MODAL HELPERS — 지점/지사 추가
+// =====================================================================
+var pendOrgType=null;     // 'master' | 'branch' | 'sub'
+var pendOrgParent=null;   // 부모 branch_id (null = 최상위 = 총판)
+
+function openOrgModal(type,parentId){
+  pendOrgType=type;
+  pendOrgParent=parentId;
+  var titles={master:'총판 추가',branch:'지사 추가',sub:'지점 추가'};
+  document.getElementById('org-modal-title').textContent=titles[type]||'조직 추가';
+  
+  // 입력 초기화
+  ['mo-name','mo-tg','mo-hours','mo-contact','mo-phone'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el)el.value='';
+  });
+  
+  // 부모 조직 선택 표시 여부
+  var pw=document.getElementById('parent-wrap');
+  var ps=document.getElementById('parent-sel');
+  var pl=document.getElementById('parent-label');
+  
+  if(type==='master'||parentId){
+    // 총판이거나 부모가 명시되면 select 숨김
+    pw.style.display='none';
+  }else{
+    // 지사/지점인데 부모 미정 → 사용자가 선택
+    pw.style.display='block';
+    if(type==='branch'){
+      pl.textContent='상위 총판 *';
+      var opts='<option value="">총판 선택...</option>';
+      // 권한별 선택 가능한 총판
+      var availMasters=role==='dev'?branches.filter(b=>b.type==='master'):[];
+      availMasters.forEach(m=>{
+        opts+='<option value="'+m.id+'">🏢 '+m.name+'</option>';
+      });
+      ps.innerHTML=opts;
+    }else if(type==='sub'){
+      pl.textContent='상위 조직 *';
+      var opts='<option value="">조직 선택...</option>';
+      // 개발자: 모든 총판/지사 가능 / 총판: 자기 산하 지사 + 자기 자신 (직속지점) / 지사: 자기 자신만
+      var vis=getVisibleBranchIds();
+      var availMasters=branches.filter(b=>b.type==='master'&&(vis===null||vis.indexOf(b.id)>=0));
+      var availBranches=branches.filter(b=>b.type==='branch'&&(vis===null||vis.indexOf(b.id)>=0));
+      availMasters.forEach(m=>{opts+='<option value="m:'+m.id+'">🏢 '+m.name+' (직속 지점)</option>';});
+      availBranches.forEach(b=>{
+        var pm=branches.find(x=>x.id===b.parent_id);
+        opts+='<option value="b:'+b.id+'"> └ 🏬 '+b.name+(pm?' ['+pm.name+']':'')+'</option>';
+      });
+      ps.innerHTML=opts;
+    }
+  }
+  document.getElementById('modal-org').classList.add('open');
+}
+
+async function saveOrg(){
+  var name=document.getElementById('mo-name').value.trim();
+  var tg=document.getElementById('mo-tg').value.trim();
+  if(!name){showToast('조직명을 입력하세요','error');return;}
+  if(!tg){showToast('텔레그램 아이디를 입력하세요','error');return;}
+  if(!tg.startsWith('@'))tg='@'+tg;
+  
+  // 부모 결정
+  var parentId=pendOrgParent;
+  var actualType=pendOrgType;
+  
+  // 모달 select 사용 시
+  var pw=document.getElementById('parent-wrap');
+  if(pw.style.display!=='none'){
+    var sv=document.getElementById('parent-sel').value;
+    if(!sv){showToast('상위 조직을 선택하세요','error');return;}
+    if(pendOrgType==='branch'){
+      parentId=parseInt(sv);
+    }else if(pendOrgType==='sub'){
+      // 'm:N' = 총판 직속 지점, 'b:N' = 지사 산하 지점
+      if(sv.startsWith('m:'))parentId=parseInt(sv.substring(2));
+      else if(sv.startsWith('b:'))parentId=parseInt(sv.substring(2));
+    }
+  }
+  
+  try{
+    const payload={
+      name:name,
+      type:actualType,
+      parent_id:parentId,
+      telegram_id:tg,
+      operating_hours:document.getElementById('mo-hours').value||'10:00~18:00',
+      manager_name:document.getElementById('mo-contact').value||'담당자',
+      manager_phone:document.getElementById('mo-phone').value||null,
+      revenue:0
+    };
+    const {error}=await sb.from('branches').insert(payload);
+    if(error)throw error;
+    closeModal('modal-org');
+    showToast(({master:'총판',branch:'지사',sub:'지점'}[actualType])+' 추가 완료','success');
+    await loadAllData();
+    navigate(page);
+  }catch(e){
+    showToast('추가 실패: '+e.message,'error');
+  }
+}
+
+async function deleteBranch(id,name){
+  if(!confirm('"'+name+'" 조직을 삭제하시겠습니까?\n\n⚠️ 산하 조직과 회원 연결이 모두 끊깁니다.\n이 작업은 되돌릴 수 없습니다.'))return;
+  try{
+    // 산하 조직도 같이 (CASCADE 로 자동 삭제)
+    const {error}=await sb.from('branches').delete().eq('id',id);
+    if(error)throw error;
+    showToast('조직이 삭제되었습니다','success');
+    await loadAllData();
+    navigate(page);
+  }catch(e){
+    showToast('삭제 실패: '+e.message,'error');
+  }
+}
+
+// =====================================================================
+//   ADMIN ACCOUNT MODAL HELPERS — 어드민 계정 생성
+// =====================================================================
+function openCreateAccount(){
+  // 권한별 가능한 역할 옵션
+  var roleSel=document.getElementById('ca-role');
+  var roleOpts='';
+  if(role==='dev'){
+    roleOpts='<option value="master">총판</option><option value="branch">지사</option><option value="sub">지점</option>';
+  }else if(role==='master'){
+    roleOpts='<option value="branch">지사</option><option value="sub">지점</option>';
+  }
+  roleSel.innerHTML=roleOpts;
+  
+  // 입력 초기화
+  ['ca-name','ca-username','ca-password'].forEach(id=>{var el=document.getElementById(id);if(el)el.value='';});
+  
+  // 첫 번째 역할로 조직 옵션 채우기
+  if(roleSel.value){
+    buildOrgOptions(roleSel.value);
+  }
+  document.getElementById('modal-create-account').classList.add('open');
+}
+
+function buildOrgOptions(r){
+  var sel=document.getElementById('ca-org');
+  var lbl=document.getElementById('ca-org-label');
+  var vis=getVisibleBranchIds();
+  
+  var opts='<option value="">조직 선택...</option>';
+  if(r==='master'){
+    lbl.textContent='소속 총판 *';
+    var avail=branches.filter(b=>b.type==='master'&&(vis===null||vis.indexOf(b.id)>=0));
+    avail.forEach(b=>{opts+='<option value="'+b.id+'">🏢 '+b.name+'</option>';});
+  }else if(r==='branch'){
+    lbl.textContent='소속 지사 *';
+    var avail=branches.filter(b=>b.type==='branch'&&(vis===null||vis.indexOf(b.id)>=0));
+    avail.forEach(b=>{
+      var pm=branches.find(x=>x.id===b.parent_id);
+      opts+='<option value="'+b.id+'">🏬 '+b.name+(pm?' ['+pm.name+']':'')+'</option>';
+    });
+  }else if(r==='sub'){
+    lbl.textContent='소속 지점 *';
+    var avail=branches.filter(b=>b.type==='sub'&&(vis===null||vis.indexOf(b.id)>=0));
+    avail.forEach(b=>{
+      var pm=branches.find(x=>x.id===b.parent_id);
+      opts+='<option value="'+b.id+'">📍 '+b.name+(pm?' ['+pm.name+']':'')+'</option>';
+    });
+  }
+  sel.innerHTML=opts;
+}
+
+async function saveAccount(){
+  var name=document.getElementById('ca-name').value.trim();
+  var uname=document.getElementById('ca-username').value.trim();
+  var pw=document.getElementById('ca-password').value;
+  var r=document.getElementById('ca-role').value;
+  var orgId=document.getElementById('ca-org').value;
+  
+  if(!name||!uname||!pw){showToast('이름, 아이디, 비밀번호는 필수입니다','error');return;}
+  if(pw.length<6){showToast('비밀번호는 6자 이상이어야 합니다','error');return;}
+  if(!orgId){showToast('소속 조직을 선택하세요','error');return;}
+  if(!/^[a-zA-Z0-9_]+$/.test(uname)){showToast('아이디는 영문/숫자/언더바만 사용 가능합니다','error');return;}
+  
+  try{
+    // 중복 체크
+    const {data:existing}=await sb.from('admins').select('id').eq('username',uname).maybeSingle();
+    if(existing){showToast('이미 사용 중인 아이디입니다','error');return;}
+    
+    const hashedPw=await sha256(pw);
+    const payload={
+      username:uname,
+      password:hashedPw,
+      name:name,
+      role:r,
+      branch_id:parseInt(orgId)
+    };
+    const {error}=await sb.from('admins').insert(payload);
+    if(error)throw error;
+    closeModal('modal-create-account');
+    showToast('어드민 계정 생성 완료: @'+uname,'success');
+    navigate('accounts');
+  }catch(e){
+    showToast('생성 실패: '+e.message,'error');
+  }
+}
+
+// =====================================================================
 //   ORG MANAGE — 지점 관리 (개발자: 전체, 총판: 산하만, 지사: 산하 지점만)
 // =====================================================================
 function renderOrgManage(){
@@ -1273,37 +1613,128 @@ function renderOrgManage(){
   var vis=getVisibleBranchIds();
   var visBranches=vis===null?branches:branches.filter(b=>vis.indexOf(b.id)>=0);
   
+  // 회원 수 집계 (지점별)
+  var memberCountByBranch={};
+  members.forEach(m=>{
+    if(m.branch_id){
+      memberCountByBranch[m.branch_id]=(memberCountByBranch[m.branch_id]||0)+1;
+    }
+  });
+  
   // 트리 구조로 분리
   var masters=visBranches.filter(b=>b.type==='master');
   var branchList=visBranches.filter(b=>b.type==='branch');
   var subs=visBranches.filter(b=>b.type==='sub');
   
   var titleMap={dev:'지점 관리 (전체)',master:'지사/지점 관리',branch:'지점 관리',sub:'내 지점'};
-  var html='<div class="ph"><div><h1>'+(titleMap[role]||'지점 관리')+'</h1><p>총 '+visBranches.length+'개 조직</p></div>'
-  +(role==='dev'?'<div><button class="btn btn-p" onclick="alert(\'지점 추가 기능은 추후 구현 예정\')">+ 지점 추가</button></div>':'')
+  
+  // 헤더 액션 버튼 (권한별)
+  var headerActions='';
+  if(role==='dev'){
+    headerActions='<button class="btn btn-p btn-sm" onclick="openOrgModal(\'master\',null)">+ 총판</button>'
+      +'<button class="btn btn-b btn-sm" onclick="openOrgModal(\'branch\',null)">+ 지사</button>'
+      +'<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\',null)">+ 지점</button>'
+      +'<button class="btn btn-g btn-sm" onclick="orgExpandAll(true)">📂 펼치기</button>'
+      +'<button class="btn btn-g btn-sm" onclick="orgExpandAll(false)">📁 접기</button>';
+  }else if(role==='master'){
+    headerActions='<button class="btn btn-b btn-sm" onclick="openOrgModal(\'branch\',null)">+ 지사 (자기 산하)</button>'
+      +'<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\',null)">+ 지점</button>';
+  }else if(role==='branch'){
+    headerActions='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\',null)">+ 지점</button>';
+  }
+  
+  var html='<div class="ph"><div><h1>'+(titleMap[role]||'지점 관리')+'</h1><p>총 '+visBranches.length+'개 조직 — 클릭하면 펼쳐집니다</p></div>'
+  +(headerActions?'<div style="display:flex;gap:6px;flex-wrap:wrap">'+headerActions+'</div>':'')
   +'</div>';
   
   if(visBranches.length===0){
-    html+='<div class="alert a-yellow">⚠️ 등록된 지점이 없습니다. SQL 실행 후 데이터가 들어와야 보입니다.</div>'
+    html+='<div class="alert a-yellow">⚠️ 등록된 지점이 없습니다.</div>'
     +'<div class="empty"><div class="empty-icon">🏢</div><div class="empty-txt">권한 격리 SQL (setup-permissions.sql) 실행 필요</div></div>';
     return html;
   }
   
-  // 총판 (master) 부터 재귀적 트리 표시
+  // 산하 회원 수 (자기 + 모든 하위 지점 회원)
+  function totalMembers(b){
+    var ids=getDescendantBranchIds(b.id);
+    return ids.reduce((sum,id)=>sum+(memberCountByBranch[id]||0),0);
+  }
+  // 산하 매출 합계
+  function totalRevenue(b){
+    var ids=getDescendantBranchIds(b.id);
+    return ids.reduce((sum,id)=>{
+      var node=branches.find(x=>x.id===id);
+      return sum+(node?parseFloat(node.revenue||0):0);
+    },0);
+  }
+  
+  // 노드별 액션 버튼 (권한별)
+  function nodeActions(b){
+    var actions='';
+    if(role==='dev'){
+      // 개발자: 모든 노드에 +/삭제 가능
+      if(b.type==='master'){
+        actions+='<button class="btn btn-b btn-sm" onclick="openOrgModal(\'branch\','+b.id+')">+ 지사</button>';
+        actions+='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\','+b.id+')">+ 직속지점</button>';
+      }else if(b.type==='branch'){
+        actions+='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\','+b.id+')">+ 지점</button>';
+      }
+      actions+='<button class="btn btn-d btn-sm" onclick="deleteBranch('+b.id+',\''+b.name.replace(/\'/g,'')+'\')">삭제</button>';
+    }else if(role==='master'){
+      // 총판: 자기 산하만 + 가능
+      if(b.type==='master'&&b.id===realBranchId){
+        actions+='<button class="btn btn-b btn-sm" onclick="openOrgModal(\'branch\','+b.id+')">+ 지사</button>';
+        actions+='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\','+b.id+')">+ 직속지점</button>';
+      }else if(b.type==='branch'){
+        actions+='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\','+b.id+')">+ 지점</button>';
+        actions+='<button class="btn btn-d btn-sm" onclick="deleteBranch('+b.id+',\''+b.name.replace(/\'/g,'')+'\')">삭제</button>';
+      }else if(b.type==='sub'){
+        actions+='<button class="btn btn-d btn-sm" onclick="deleteBranch('+b.id+',\''+b.name.replace(/\'/g,'')+'\')">삭제</button>';
+      }
+    }else if(role==='branch'){
+      // 지사: 자기 산하 지점만 가능
+      if(b.type==='branch'&&b.id===realBranchId){
+        actions+='<button class="btn btn-s btn-sm" onclick="openOrgModal(\'sub\','+b.id+')">+ 지점</button>';
+      }else if(b.type==='sub'){
+        actions+='<button class="btn btn-d btn-sm" onclick="deleteBranch('+b.id+',\''+b.name.replace(/\'/g,'')+'\')">삭제</button>';
+      }
+    }
+    return actions;
+  }
+  
+  // 재귀적 트리 (접기/펼치기 지원)
   function renderTree(b,depth){
     var children=branches.filter(x=>x.parent_id===b.id);
+    var visibleChildren=children.filter(c=>vis===null||vis.indexOf(c.id)>=0);
     var ico={master:'🏢',branch:'🏬',sub:'📍'};
     var col={master:'var(--c-master)',branch:'var(--c-branch)',sub:'var(--c-sub)'};
+    var bgCol={master:'rgba(240,180,41,.05)',branch:'rgba(52,152,219,.05)',sub:'rgba(46,204,113,.05)'};
     var lbl={master:'총판',branch:'지사',sub:'지점'};
-    var visibleChildren=children.filter(c=>vis===null||vis.indexOf(c.id)>=0);
+    var hasChildren=visibleChildren.length>0;
+    var nodeId='org-'+b.id;
+    var memCnt=totalMembers(b);
+    var revTotal=totalRevenue(b);
     
-    var h='<div class="oc"><div class="och"><div>'
-      +'<div class="on2"><span class="badge bg-'+b.type+'">'+lbl[b.type]+'</span> '+ico[b.type]+' '+b.name+(b.telegram_id?' <a href="https://t.me/'+b.telegram_id.replace('@','')+'" style="font-size:11px;color:'+col[b.type]+';font-weight:400">'+b.telegram_id+'</a>':'')+'</div>'
-      +'<div class="om">담당: '+(b.manager_name||'-')+(b.manager_phone?' / '+b.manager_phone:'')+' · '+(b.operating_hours||'-')+(b.revenue?' · ₩'+parseInt(b.revenue).toLocaleString():'')+'</div>'
-      +'</div></div>';
+    // 펼침 여부 (기본: 첫 레벨만 펼침)
+    var defaultOpen=(depth===0);
     
-    if(visibleChildren.length>0){
-      h+='<div class="ochildren">';
+    var h='<div class="oc" style="margin-left:'+(depth*16)+'px;background:'+bgCol[b.type]+'">'
+      +'<div class="och" style="cursor:'+(hasChildren?'pointer':'default')+';user-select:none" '
+        +(hasChildren?'onclick="toggleOrgNode(\''+nodeId+'\',this)"':'')+'>'
+      +'<div style="display:flex;align-items:center;gap:8px;flex:1">'
+        +(hasChildren?'<span id="'+nodeId+'-arrow" style="font-size:11px;color:'+col[b.type]+';transition:transform .2s;display:inline-block'+(defaultOpen?';transform:rotate(90deg)':'')+'">▶</span>':'<span style="width:11px;display:inline-block"></span>')
+        +'<div class="on2" style="margin:0">'
+          +'<span class="badge bg-'+b.type+'">'+lbl[b.type]+'</span> '+ico[b.type]+' '+b.name
+          +(b.telegram_id?' <a href="https://t.me/'+b.telegram_id.replace('@','')+'" style="font-size:11px;color:'+col[b.type]+';font-weight:400" onclick="event.stopPropagation()">'+b.telegram_id+'</a>':'')
+          +(hasChildren?'<span style="font-size:10px;color:var(--text3);margin-left:6px">('+visibleChildren.length+'개 산하)</span>':'')
+          +'<span style="font-size:10px;color:var(--blue);margin-left:6px">👥 회원 '+memCnt+'명</span>'
+        +'</div>'
+      +'</div>'
+      +'<div style="display:flex;gap:4px;flex-wrap:wrap" onclick="event.stopPropagation()">'+nodeActions(b)+'</div>'
+      +'</div>'
+      +'<div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">담당: '+(b.manager_name||'-')+(b.manager_phone?' / '+b.manager_phone:'')+' · '+(b.operating_hours||'-')+(b.revenue?' · 직접매출 ₩'+parseInt(b.revenue).toLocaleString():'')+(memCnt>0?' · 산하포함 ₩'+revTotal.toLocaleString():'')+'</div>';
+    
+    if(hasChildren){
+      h+='<div id="'+nodeId+'-body" class="ochildren" style="display:'+(defaultOpen?'block':'none')+'">';
       visibleChildren.forEach(c=>{h+=renderTree(c,depth+1);});
       h+='</div>';
     }
@@ -1325,6 +1756,28 @@ function renderOrgManage(){
   return html;
 }
 
+// 노드 접기/펼치기 토글
+function toggleOrgNode(nodeId,headerEl){
+  var body=document.getElementById(nodeId+'-body');
+  var arrow=document.getElementById(nodeId+'-arrow');
+  if(!body)return;
+  var isOpen=body.style.display!=='none';
+  body.style.display=isOpen?'none':'block';
+  if(arrow){
+    arrow.style.transform=isOpen?'rotate(0deg)':'rotate(90deg)';
+  }
+}
+
+// 모두 펼치기/접기
+function orgExpandAll(expand){
+  document.querySelectorAll('[id^="org-"][id$="-body"]').forEach(el=>{
+    el.style.display=expand?'block':'none';
+  });
+  document.querySelectorAll('[id^="org-"][id$="-arrow"]').forEach(el=>{
+    el.style.transform=expand?'rotate(90deg)':'rotate(0deg)';
+  });
+}
+
 // =====================================================================
 //   MY ORGS — 자기 조직 관리 (총판/지사 시점) — 동일 함수 사용
 // =====================================================================
@@ -1335,9 +1788,11 @@ function renderMyOrgs(){
 // =====================================================================
 //   ACCOUNTS — 어드민 계정 관리
 // =====================================================================
-async function renderAccounts(){
-  var html='<div class="ph"><div><h1>어드민 계정 관리</h1><p>로그인 가능한 어드민 계정 목록</p></div></div>'
-  +'<div class="alert a-blue">🔑 어드민 계정은 admins 테이블에서 관리됩니다. 비밀번호는 SHA256 으로 해시되어 저장됩니다.</div>'
+function renderAccounts(){
+  // 권한 격리 — 본인 산하 어드민만
+  var html='<div class="ph"><div><h1>어드민 계정 관리</h1><p>로그인 가능한 어드민 계정 목록 — 비밀번호는 SHA256 해시 저장</p></div>'
+  +(role==='dev'||role==='master'?'<div><button class="btn btn-p" onclick="openCreateAccount()">+ 계정 생성</button></div>':'')
+  +'</div>'
   +'<div class="card" id="acc-card"><div class="card-head"><div class="card-title">계정 목록</div></div><div class="card-body" id="acc-body"><div class="empty"><span class="loading"></span> 로드 중...</div></div></div>';
   setTimeout(loadAccounts,80);
   return html;
@@ -1348,17 +1803,42 @@ async function loadAccounts(){
     if(error)throw error;
     var body=document.getElementById('acc-body');
     if(!body)return;
-    if(!data||!data.length){
-      body.innerHTML='<div class="empty"><div class="empty-icon">🔑</div><div class="empty-txt">등록된 계정 없음</div></div>';
+    
+    // 권한 격리 — dev 가 아니면 자기와 산하 어드민만
+    var visAccounts=data||[];
+    if(role!=='dev'){
+      var vis=getVisibleBranchIds();
+      visAccounts=visAccounts.filter(a=>{
+        if(a.role==='dev')return false; // 일반 어드민에게는 dev 계정 안 보여줌
+        if(a.id===curAcc.id)return true; // 자기 자신
+        if(!a.branch_id)return false;
+        return vis&&vis.indexOf(a.branch_id)>=0;
+      });
+    }
+    
+    if(!visAccounts.length){
+      body.innerHTML='<div class="empty"><div class="empty-icon">🔑</div><div class="empty-txt">표시할 계정 없음</div></div>';
       return;
     }
-    var html='<div class="tw"><table><thead><tr><th>이름</th><th>아이디</th><th>가입일</th><th>최근 수정</th></tr></thead><tbody>';
-    data.forEach(function(a){
-      html+='<tr>'
-      +'<td style="font-weight:600">'+a.name+'</td>'
+    
+    var rl={dev:'개발자',master:'총판',branch:'지사',sub:'지점'};
+    var rcCol={dev:'bg-dev',master:'bg-master',branch:'bg-branch',sub:'bg-sub'};
+    
+    var html='<div class="tw"><table><thead><tr><th>이름</th><th>아이디</th><th>역할</th><th>소속 지점</th><th>가입일</th><th>관리</th></tr></thead><tbody>';
+    visAccounts.forEach(function(a){
+      var isMe=(curAcc&&a.id===curAcc.id);
+      var branchName='—';
+      if(a.branch_id){
+        var b=branches.find(x=>x.id===a.branch_id);
+        if(b)branchName=b.name;
+      }
+      html+='<tr'+(isMe?' style="background:rgba(240,180,41,.05)"':'')+'>'
+      +'<td style="font-weight:600">'+a.name+(isMe?' <span style="font-size:9px;color:var(--accent);background:rgba(240,180,41,.15);padding:1px 5px;border-radius:3px;margin-left:4px">나</span>':'')+'</td>'
       +'<td style="font-family:monospace;color:var(--accent)">@'+a.username+'</td>'
+      +'<td><span class="badge '+(rcCol[a.role]||'bg-gray')+'">'+(rl[a.role]||a.role||'-')+'</span></td>'
+      +'<td style="font-size:11px;color:var(--text2)">'+branchName+'</td>'
       +'<td style="font-size:11px;color:var(--text2)">'+isoToFd(a.created_at)+'</td>'
-      +'<td style="font-size:11px;color:var(--text2)">'+isoToFd(a.updated_at)+'</td>'
+      +'<td>'+(role==='dev'&&!isMe&&a.role!=='dev'?'<button class="btn btn-d btn-sm" onclick="deleteAccount('+a.id+',\''+a.username+'\')">삭제</button>':'<span style="font-size:10px;color:var(--text3)">—</span>')+'</td>'
       +'</tr>';
     });
     html+='</tbody></table></div>';
@@ -1366,6 +1846,17 @@ async function loadAccounts(){
   }catch(e){
     var body=document.getElementById('acc-body');
     if(body)body.innerHTML='<div class="alert a-red">로드 실패: '+e.message+'</div>';
+  }
+}
+async function deleteAccount(id,username){
+  if(!confirm('@'+username+' 어드민 계정을 삭제하시겠습니까?\n\n⚠️ 이 작업은 되돌릴 수 없습니다.'))return;
+  try{
+    const {error}=await sb.from('admins').delete().eq('id',id);
+    if(error)throw error;
+    showToast('계정이 삭제되었습니다','success');
+    navigate('accounts');
+  }catch(e){
+    showToast('삭제 실패: '+e.message,'error');
   }
 }
 
