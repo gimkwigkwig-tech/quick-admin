@@ -359,6 +359,24 @@ tr:last-child td{border-bottom:none}tr:hover td{background:rgba(255,255,255,.015
   </div>
 </div>
 
+<!-- DEVICE MANAGE MODAL — 회원 기기 관리 -->
+<div class="modal-bg" id="modal-device">
+  <div class="modal-box" style="max-width:560px">
+    <div class="mh"><div class="mt" id="dev-title">기기 관리</div><button class="mc" onclick="closeModal('modal-device')">×</button></div>
+    <input type="hidden" id="dev-mid" value="">
+    <div class="alert a-blue">📱 메인폰 포함 최대 4대 (메인 1대 + 추가 최대 3대)</div>
+    <div id="dev-list"></div>
+    <div id="dev-add-area" style="margin-top:12px"></div>
+    <div style="margin-top:14px;padding:10px 12px;background:var(--bg3);border-radius:7px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:12px;color:var(--text2)">월 납부 요금</span>
+      <strong id="dev-total" style="font-size:16px;color:var(--green)">₩0</strong>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-g" style="flex:1" onclick="closeModal('modal-device')">닫기</button>
+    </div>
+  </div>
+</div>
+
 <!-- NOTICE MODAL -->
 <div class="modal-bg" id="modal-notice">
   <div class="modal-box">
@@ -421,7 +439,7 @@ function showToast(msg,type){
 var role='dev', user=null, curAcc=null, page='dashboard', platform='all';
 var selPay=new Set(), memberFilter='all', payFilter='all';
 var pendType=null, pendParent=null;
-var BASE_FEE=60000, DEV_FEE=15000;
+var BASE_FEE=60000, DEV_FEE=40000;
 var chartObj=null, payChartObj=null;
 var expireAlertOn=true;
 
@@ -1102,11 +1120,13 @@ function renderLicense(){
   if(!list.length){
     html+='<div class="empty"><div class="empty-icon">📋</div><div class="empty-txt">해당 조건의 회원이 없습니다</div></div>';
   } else {
-    html+='<div class="tw"><table><thead><tr><th>기사</th><th>이용권</th><th>만료일 설정</th><th>D-day</th><th>관리</th></tr></thead><tbody>';
+    html+='<div class="tw"><table><thead><tr><th>기사</th><th>이용권</th><th>기기</th><th>만료일 설정</th><th>D-day</th><th>관리</th></tr></thead><tbody>';
     list.forEach(function(m){
       var c=ac(m.id);
+      var devCnt=(m.devices||[]).length;
       html+='<tr><td><div class="minfo"><div class="mavatar" style="background:'+c+'22;color:'+c+'">'+(m.name?m.name[0]:'?')+'</div><div><div class="mname">'+m.name+'</div><div class="mid">@'+m.username+'</div></div></div></td>'
       +'<td><span class="badge '+(m.plan==='free'?'bg-purple':'bg-green')+'">'+(m.plan==='free'?'무료':'유료')+'</span></td>'
+      +'<td><button class="btn btn-b btn-sm" onclick="openDevModal('+m.id+')">📱 '+devCnt+'대 관리</button></td>'
       +'<td style="min-width:140px"><div class="cal-wrap"><input class="cal-inp" id="exp-'+m.id+'" value="'+(m.expire||'')+'" placeholder="날짜 선택" readonly onclick="openCal('+m.id+')"><div class="cal-dropdown" id="cdd-'+m.id+'"></div></div></td>'
       +'<td>'+expBadge(m.expire)+'</td>'
       +'<td><div style="display:flex;gap:4px"><button class="btn btn-g btn-sm" onclick="toggleFree('+m.id+')">'+(m.plan==='free'?'무료해제':'무료설정')+'</button>'
@@ -1130,6 +1150,164 @@ async function toggleFree(id){
   }catch(e){
     showToast('변경 실패: '+e.message,'error');
   }
+}
+
+// =====================================================================
+//   DEVICE MANAGEMENT — 회원 기기 추가/삭제 (메인 1대 + 추가 최대 3대)
+// =====================================================================
+function openDevModal(mid){
+  var m=members.find(x=>x.id===mid);
+  if(!m){showToast('회원을 찾을 수 없습니다','error');return;}
+  document.getElementById('dev-mid').value=mid;
+  document.getElementById('dev-title').textContent='📱 '+m.name+' 기기 관리';
+  renderDevList(m);
+  document.getElementById('modal-device').classList.add('open');
+}
+
+function renderDevList(m){
+  if(typeof m==='number')m=members.find(x=>x.id===m);
+  if(!m)return;
+  var devs=m.devices||[];
+  
+  // 메인폰 (devices[0]) + 추가 기기 (devices[1..])
+  var html='';
+  devs.forEach((dev,i)=>{
+    var isMain=dev.main;
+    var devFee=isMain?BASE_FEE:(dev.fee!==undefined&&dev.fee!==null?dev.fee:DEV_FEE);
+    // 라벨 자동 표시: 메인 = 회원이름 / 추가 = 회원이름+번호
+    var displayLabel;
+    if(isMain){
+      displayLabel=m.name;
+    } else {
+      // 추가 기기 번호 (메인 제외 N번째)
+      var addNum=devs.slice(0,i+1).filter(d=>!d.main).length;
+      displayLabel=m.name+addNum;
+    }
+    html+='<div class="dev-item" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border-radius:7px;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<div style="width:24px;height:24px;border-radius:5px;background:'+(isMain?'var(--accent)':'var(--bg5)')+';color:'+(isMain?'#000':'var(--text2)')+';font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">'+(i+1)+'</div>'
+      +'<div><div style="font-size:12px;font-weight:600">'+displayLabel+(isMain?' <span style="font-size:9px;color:var(--accent);background:rgba(240,180,41,.15);padding:1px 5px;border-radius:3px;margin-left:3px">메인</span>':'')+'</div>'
+      +(dev.phone_number?'<div style="font-size:10px;color:var(--text3);margin-top:2px">📞 '+dev.phone_number+'</div>':'')
+      +'</div>'
+      +'</div>'
+      +'<div style="display:flex;align-items:center;gap:6px">';
+    if(isMain){
+      html+='<span style="font-size:11px;color:var(--accent);font-weight:600">기본 ₩'+BASE_FEE.toLocaleString()+'</span>';
+    } else {
+      html+='<input type="number" style="width:90px;background:var(--bg4);border:1px solid var(--border);border-radius:5px;padding:3px 6px;color:var(--text);font-size:11px;outline:none" value="'+devFee+'" onchange="updateDevFee('+m.id+','+i+',this.value)" title="요금 (원)">'
+        +'<span style="font-size:10px;color:var(--text3)">원</span>'
+        +'<button class="btn btn-d btn-sm" onclick="removeDev('+m.id+','+i+')" title="기기 삭제">삭제</button>';
+    }
+    html+='</div></div>';
+  });
+  document.getElementById('dev-list').innerHTML=html||'<div class="empty"><div class="empty-icon">📱</div><div class="empty-txt">등록된 기기 없음</div></div>';
+  
+  // 기기 추가 영역 (4대 미만일 때만)
+  var addArea=document.getElementById('dev-add-area');
+  if(devs.length<4){
+    // 다음 기기 번호 (메인 제외 N번째)
+    var nextNum=devs.filter(d=>!d.main).length+1;
+    var autoLabel=m.name+nextNum; // 예: "김지수1"
+    
+    addArea.innerHTML='<div style="border:1px dashed var(--border);border-radius:8px;padding:14px;background:var(--bg3)">'
+      +'<div style="font-size:11px;color:var(--text2);margin-bottom:10px">➕ 추가 기기 (최대 '+(4-devs.length)+'대 더 추가 가능)</div>'
+      +'<div style="background:var(--bg4);border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:12px">'
+      +'<span style="color:var(--text3)">자동 라벨:</span> <strong style="color:var(--accent);font-family:monospace">'+autoLabel+'</strong>'
+      +'<span style="color:var(--text3);font-size:10px;margin-left:6px">(회원이름+번호 자동 생성)</span>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
+      +'<div><label class="fl">💰 추가 요금 (원)</label><input class="fi2" type="number" id="add-dev-fee" placeholder="예: 15000" value="'+DEV_FEE+'"></div>'
+      +'<div><label class="fl">📅 이용 기간 (일)</label><input class="fi2" type="number" id="add-dev-days" placeholder="예: 40" value="40" min="1"></div>'
+      +'</div>'
+      +'<button class="btn btn-p btn-sm" style="width:100%" onclick="addDev('+m.id+')">+ '+autoLabel+' 기기 추가</button>'
+      +'</div>';
+  } else {
+    addArea.innerHTML='<div class="alert a-yellow">⚠️ 최대 4대 한도 도달 (메인폰 1 + 추가 3)</div>';
+  }
+  
+  // 총 요금 계산
+  var total=devs.reduce((sum,d,i)=>sum+(d.main?BASE_FEE:(d.fee!==undefined&&d.fee!==null?d.fee:DEV_FEE)),0);
+  document.getElementById('dev-total').textContent='₩'+total.toLocaleString();
+}
+
+async function addDev(mid){
+  var m=members.find(x=>x.id===mid);
+  if(!m){showToast('회원을 찾을 수 없습니다','error');return;}
+  var fee=parseInt(document.getElementById('add-dev-fee').value)||DEV_FEE;
+  var days=parseInt(document.getElementById('add-dev-days').value)||40;
+  
+  // 자동 라벨 생성: 회원이름 + 번호 (메인 제외 N번째)
+  var nextNum=m.devices.filter(d=>!d.main).length+1;
+  var autoLabel=m.name+nextNum;
+  
+  try{
+    const {data,error}=await sb.from('user_devices').insert({
+      user_id:mid,
+      label:autoLabel,
+      phone_number:null
+    }).select().single();
+    if(error)throw error;
+    
+    // 캐시 업데이트
+    m.devices.push({
+      id:data.id,
+      num:m.devices.length+1,
+      label:autoLabel,
+      platform:'toss',
+      fee:fee,
+      main:false
+    });
+    
+    // 회원 이용권 만료일도 days 만큼 자동 연장
+    var base=m.expire?pd(m.expire):new Date();
+    if(!base||isNaN(base))base=new Date();
+    if(base<new Date())base=new Date();
+    base.setDate(base.getDate()+days);
+    const {error:ue}=await sb.from('users').update({
+      license_expires_at:base.toISOString(),
+      is_free_user:false
+    }).eq('id',mid);
+    if(ue)throw ue;
+    m.expire=fd(base);
+    m.plan='paid';
+    
+    showToast(autoLabel+' 추가 완료 — 이용권 '+days+'일 연장','success');
+    renderDevList(m);
+  }catch(e){
+    showToast('추가 실패: '+e.message,'error');
+  }
+}
+
+async function removeDev(mid,idx){
+  var m=members.find(x=>x.id===mid);
+  if(!m||!m.devices[idx])return;
+  var dev=m.devices[idx];
+  if(dev.main){showToast('메인 기기는 삭제할 수 없습니다','error');return;}
+  if(!confirm('"'+dev.label+'" 기기를 삭제하시겠습니까?'))return;
+  
+  try{
+    if(dev.id){
+      const {error}=await sb.from('user_devices').delete().eq('id',dev.id);
+      if(error)throw error;
+    }
+    m.devices.splice(idx,1);
+    // num 재정렬
+    m.devices.forEach((d,i)=>{d.num=i+1;});
+    showToast('기기 삭제 완료','success');
+    renderDevList(m);
+  }catch(e){
+    showToast('삭제 실패: '+e.message,'error');
+  }
+}
+
+function updateDevFee(mid,idx,val){
+  var m=members.find(x=>x.id===mid);
+  if(!m||!m.devices[idx])return;
+  m.devices[idx].fee=parseInt(val)||0;
+  // 총 요금 갱신
+  var total=m.devices.reduce((sum,d,i)=>sum+(d.main?BASE_FEE:(d.fee!==undefined&&d.fee!==null?d.fee:DEV_FEE)),0);
+  document.getElementById('dev-total').textContent='₩'+total.toLocaleString();
+  // 참고: fee 는 어드민 화면 캐시만 — DB 영속화하려면 user_devices 에 fee 컬럼 추가 필요
 }
 
 // =====================================================================
@@ -1352,7 +1530,7 @@ function setPF(f){payFilter=f;navigate('payment');}
 
 async function approveP(id){
   var p=payments.find(x=>x.id===id);if(!p)return;
-  if(!confirm('₩'+(p.amount||0).toLocaleString()+' 결제를 승인하시겠습니까?\n\n승인 시 회원의 이용권이 30일 연장됩니다.'))return;
+  if(!confirm('₩'+(p.amount||0).toLocaleString()+' 결제를 승인하시겠습니까?\n\n승인 시 회원의 이용권이 40일 연장됩니다.'))return;
   try{
     // 결제 승인
     const {error:pe}=await sb.from('payment_requests').update({
@@ -1362,13 +1540,13 @@ async function approveP(id){
     }).eq('id',id);
     if(pe)throw pe;
     
-    // 회원 만료일 30일 연장
+    // 회원 만료일 40일 연장 (6만원 = 40일 정책)
     var m=members.find(x=>x.id===p.userId);
     if(m){
       var base=m.expire?pd(m.expire):new Date();
       if(!base||isNaN(base))base=new Date();
       if(base<new Date())base=new Date(); // 이미 만료된 경우 오늘부터
-      base.setDate(base.getDate()+30);
+      base.setDate(base.getDate()+40);
       const {error:ue}=await sb.from('users').update({
         license_expires_at:base.toISOString(),
         is_free_user:false
@@ -1376,7 +1554,7 @@ async function approveP(id){
       if(ue)throw ue;
     }
     
-    showToast('결제 승인 + 이용권 30일 연장 완료','success');
+    showToast('결제 승인 + 이용권 40일 연장 완료','success');
     await loadAllData();
     navigate('payment');
   }catch(e){
@@ -1649,18 +1827,38 @@ function renderRevenue(){
     var ico={master:'🏢',branch:'🏬',sub:'📍'};
     var lbl={master:'총판',branch:'지사',sub:'지점'};
     var col={master:'var(--c-master)',branch:'var(--c-branch)',sub:'var(--c-sub)'};
-    var directRev=parseFloat(b.revenue||0)+(memberRevenue[b.id]||0);
-    // 드릴다운 가능: 자식이 있고, 현재 드릴다운된 노드 자체가 아닐 때만 (이미 드릴된 노드는 다시 누를 필요 없음)
-    var canDrill=children.length>0&&!isDrillRoot;
+    // 본인 직접 매출 (지점등록값 + 본인 회원 결제)
+    var ownRev=parseFloat(b.revenue||0)+(memberRevenue[b.id]||0);
+    // 산하 매출 (총합 - 본인)
+    var subRev=t.total-ownRev;
+    var hasChildren=children.length>0;
+    var canDrill=hasChildren&&!isDrillRoot;
+    
+    // 우측 매출 표시 (산하 합계 + 본인 매출 분리)
+    var rightHtml='<div style="text-align:right;min-width:160px">';
+    if(hasChildren){
+      // 산하 있으면: 합계 (큰 글씨) + 산하/본인 분리
+      rightHtml+='<div style="font-size:9px;color:var(--text3)">산하 포함 합계</div>'
+        +'<div style="font-size:18px;font-weight:700;color:'+col[b.type]+';line-height:1.1">₩'+t.total.toLocaleString()+'</div>'
+        +'<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);font-size:10px;line-height:1.5">'
+        +'<div style="display:flex;justify-content:space-between;gap:8px"><span style="color:var(--text3)">산하 매출:</span><span style="color:var(--blue);font-weight:600">₩'+subRev.toLocaleString()+'</span></div>'
+        +'<div style="display:flex;justify-content:space-between;gap:8px"><span style="color:var(--text3)">본인 매출:</span><span style="color:var(--green);font-weight:600">₩'+ownRev.toLocaleString()+'</span></div>'
+        +'</div>';
+    } else {
+      // 자식 없으면: 본인 매출만
+      rightHtml+='<div style="font-size:9px;color:var(--text3)">본인 매출</div>'
+        +'<div style="font-size:16px;font-weight:700;color:'+col[b.type]+'">₩'+ownRev.toLocaleString()+'</div>';
+    }
+    rightHtml+='</div>';
     
     var h='<div class="rv-node" style="margin-left:'+(depth*14)+'px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;'+(canDrill?'cursor:pointer;transition:.15s':'')+'" '
       +(canDrill?'onclick="revDrillNode='+b.id+';navigate(\'revenue\')" onmouseover="this.style.borderColor=\''+col[b.type]+'\'" onmouseout="this.style.borderColor=\'var(--border)\'"':'')+'>'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">'
-        +'<div style="flex:1"><div style="font-weight:700;font-size:13px"><span class="badge bg-'+b.type+'">'+lbl[b.type]+'</span> '+ico[b.type]+' '+b.name+(canDrill?' <span style="font-size:10px;color:'+col[b.type]+'">▶ 산하 보기</span>':isDrillRoot&&children.length>0?' <span style="font-size:10px;color:var(--accent)">📂 펼침</span>':'')+'</div>'
-        +'<div style="font-size:10px;color:var(--text2);margin-top:3px">직접 ₩'+directRev.toLocaleString()
-        +(children.length>0?' · 산하 ₩'+(t.total-directRev).toLocaleString():'')
-        +' · 회원 '+t.memCnt+'명</div></div>'
-        +'<div style="text-align:right"><div style="font-size:9px;color:var(--text3)">합계 매출</div><div style="font-size:16px;font-weight:700;color:'+col[b.type]+'">₩'+t.total.toLocaleString()+'</div></div>'
+        +'<div style="flex:1;min-width:200px"><div style="font-weight:700;font-size:13px"><span class="badge bg-'+b.type+'">'+lbl[b.type]+'</span> '+ico[b.type]+' '+b.name+(canDrill?' <span style="font-size:10px;color:'+col[b.type]+'">▶ 산하 보기</span>':isDrillRoot&&hasChildren?' <span style="font-size:10px;color:var(--accent)">📂 펼침</span>':'')+'</div>'
+        +'<div style="font-size:10px;color:var(--text2);margin-top:3px">'
+        +'산하 조직 '+(hasChildren?children.length+'개':'없음')+' · 회원 '+t.memCnt+'명'
+        +'</div></div>'
+        +rightHtml
       +'</div></div>';
     
     // 모든 자식을 항상 펼침 (드릴다운 모드면 더 깊게)
@@ -2076,7 +2274,7 @@ function renderOrgManage(){
       +'</div>'
       +'<div style="display:flex;gap:4px;flex-wrap:wrap" onclick="event.stopPropagation()">'+nodeActions(b)+'</div>'
       +'</div>'
-      +'<div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">담당: '+(b.manager_name||'-')+(b.manager_phone?' / '+b.manager_phone:'')+' · '+(b.operating_hours||'-')+(b.revenue?' · 직접매출 ₩'+parseInt(b.revenue).toLocaleString():'')+(memCnt>0?' · 산하포함 ₩'+revTotal.toLocaleString():'')+'</div>';
+      +'<div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">담당: '+(b.manager_name||'-')+(b.manager_phone?' / '+b.manager_phone:'')+' · '+(b.operating_hours||'-')+'</div>';
     
     if(hasChildren){
       h+='<div id="'+nodeId+'-body" class="ochildren" style="display:'+(defaultOpen?'block':'none')+'">';
