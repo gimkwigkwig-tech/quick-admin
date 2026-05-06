@@ -361,18 +361,25 @@ tr:last-child td{border-bottom:none}tr:hover td{background:rgba(255,255,255,.015
 
 <!-- DEVICE MANAGE MODAL — 회원 기기 관리 -->
 <div class="modal-bg" id="modal-device">
-  <div class="modal-box" style="max-width:560px">
-    <div class="mh"><div class="mt" id="dev-title">기기 관리</div><button class="mc" onclick="closeModal('modal-device')">×</button></div>
+  <div class="modal-box" style="max-width:580px">
+    <div class="mh"><div class="mt" id="dev-title">기기 관리</div><button class="mc" onclick="cancelAllDevChanges()">×</button></div>
     <input type="hidden" id="dev-mid" value="">
-    <div class="alert a-blue">📱 메인폰 포함 최대 4대 (메인 1대 + 추가 최대 3대)</div>
+    <div class="alert a-blue">📱 메인폰 포함 최대 4대 (메인 1대 + 추가 최대 3대) — 변경 후 <strong>저장하기</strong> 버튼 필수</div>
     <div id="dev-list"></div>
     <div id="dev-add-area" style="margin-top:12px"></div>
     <div style="margin-top:14px;padding:10px 12px;background:var(--bg3);border-radius:7px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:12px;color:var(--text2)">월 납부 요금</span>
+      <span style="font-size:12px;color:var(--text2)">월 납부 요금 (반영 후)</span>
       <strong id="dev-total" style="font-size:16px;color:var(--green)">₩0</strong>
     </div>
+    
+    <!-- ★ 저장 바 (펜딩 변경 있을 때만 표시) -->
+    <div id="dev-save-bar" style="display:none;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:14px;padding:10px 12px;background:rgba(240,180,41,.08);border:1px solid var(--accent);border-radius:7px">
+      <span class="pending-info" style="font-size:11px;color:var(--accent);font-weight:600">⏳ 미저장 변경사항</span>
+    </div>
+    
     <div style="display:flex;gap:8px;margin-top:14px">
-      <button class="btn btn-g" style="flex:1" onclick="closeModal('modal-device')">닫기</button>
+      <button class="btn btn-g" style="flex:1" onclick="cancelAllDevChanges()">취소 / 닫기</button>
+      <button class="btn btn-p" style="flex:2" onclick="saveAllDevChanges()">💾 변경사항 저장하기</button>
     </div>
   </div>
 </div>
@@ -1154,10 +1161,21 @@ async function toggleFree(id){
 
 // =====================================================================
 //   DEVICE MANAGEMENT — 회원 기기 추가/삭제 (메인 1대 + 추가 최대 3대)
+//   ★ 펜딩 변경 모델: 추가/삭제는 임시로 화면에만 반영 → "저장" 클릭 시 DB 반영
 // =====================================================================
+var devPending={
+  mid:null,
+  adds:[],     // 추가 예정: [{label, fee}]
+  removes:[],  // 삭제 예정: [device id]
+  feeChanges:{}, // 요금 변경 예정: {idx: newFee}
+  daysToExtend:0  // 연장 예정 일수 (모든 추가의 합)
+};
+
 function openDevModal(mid){
   var m=members.find(x=>x.id===mid);
   if(!m){showToast('회원을 찾을 수 없습니다','error');return;}
+  // 펜딩 초기화
+  devPending={mid:mid,adds:[],removes:[],feeChanges:{},daysToExtend:0};
   document.getElementById('dev-mid').value=mid;
   document.getElementById('dev-title').textContent='📱 '+m.name+' 기기 관리';
   renderDevList(m);
@@ -1169,145 +1187,242 @@ function renderDevList(m){
   if(!m)return;
   var devs=m.devices||[];
   
-  // 메인폰 (devices[0]) + 추가 기기 (devices[1..])
   var html='';
+  // 1. 기존 기기들
   devs.forEach((dev,i)=>{
     var isMain=dev.main;
-    var devFee=isMain?BASE_FEE:(dev.fee!==undefined&&dev.fee!==null?dev.fee:DEV_FEE);
-    // 라벨 자동 표시: 메인 = 회원이름 / 추가 = 회원이름+번호
+    var isPendingRemove=devPending.removes.indexOf(dev.id)>=0;
+    var devFee=devPending.feeChanges[i]!==undefined?devPending.feeChanges[i]:(isMain?BASE_FEE:(dev.fee!==undefined&&dev.fee!==null?dev.fee:DEV_FEE));
+    
+    // 라벨 표시
     var displayLabel;
     if(isMain){
       displayLabel=m.name;
     } else {
-      // 추가 기기 번호 (메인 제외 N번째)
       var addNum=devs.slice(0,i+1).filter(d=>!d.main).length;
       displayLabel=m.name+addNum;
     }
-    html+='<div class="dev-item" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border-radius:7px;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
+    
+    var bgColor=isPendingRemove?'rgba(231,76,60,.08)':'var(--bg3)';
+    var opacity=isPendingRemove?'.55':'1';
+    
+    html+='<div class="dev-item" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:'+bgColor+';border-radius:7px;margin-bottom:6px;flex-wrap:wrap;gap:6px;opacity:'+opacity+(isPendingRemove?';text-decoration:line-through':'')+'">'
       +'<div style="display:flex;align-items:center;gap:8px">'
       +'<div style="width:24px;height:24px;border-radius:5px;background:'+(isMain?'var(--accent)':'var(--bg5)')+';color:'+(isMain?'#000':'var(--text2)')+';font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">'+(i+1)+'</div>'
-      +'<div><div style="font-size:12px;font-weight:600">'+displayLabel+(isMain?' <span style="font-size:9px;color:var(--accent);background:rgba(240,180,41,.15);padding:1px 5px;border-radius:3px;margin-left:3px">메인</span>':'')+'</div>'
-      +(dev.phone_number?'<div style="font-size:10px;color:var(--text3);margin-top:2px">📞 '+dev.phone_number+'</div>':'')
+      +'<div><div style="font-size:12px;font-weight:600">'+displayLabel
+      +(isMain?' <span style="font-size:9px;color:var(--accent);background:rgba(240,180,41,.15);padding:1px 5px;border-radius:3px;margin-left:3px">메인</span>':'')
+      +(isPendingRemove?' <span style="font-size:9px;color:var(--red);background:rgba(231,76,60,.15);padding:1px 5px;border-radius:3px;margin-left:3px">⏳ 삭제 예정</span>':'')
+      +'</div>'
       +'</div>'
       +'</div>'
       +'<div style="display:flex;align-items:center;gap:6px">';
     if(isMain){
       html+='<span style="font-size:11px;color:var(--accent);font-weight:600">기본 ₩'+BASE_FEE.toLocaleString()+'</span>';
-    } else {
-      html+='<input type="number" style="width:90px;background:var(--bg4);border:1px solid var(--border);border-radius:5px;padding:3px 6px;color:var(--text);font-size:11px;outline:none" value="'+devFee+'" onchange="updateDevFee('+m.id+','+i+',this.value)" title="요금 (원)">'
+    } else if(!isPendingRemove) {
+      html+='<input type="number" style="width:90px;background:var(--bg4);border:1px solid var(--border);border-radius:5px;padding:3px 6px;color:var(--text);font-size:11px;outline:none" value="'+devFee+'" onchange="markDevFee('+i+',this.value)" title="요금 (원)">'
         +'<span style="font-size:10px;color:var(--text3)">원</span>'
-        +'<button class="btn btn-d btn-sm" onclick="removeDev('+m.id+','+i+')" title="기기 삭제">삭제</button>';
+        +'<button class="btn btn-d btn-sm" onclick="markRemoveDev('+m.id+','+i+')" title="삭제 예정 표시">삭제</button>';
+    } else {
+      html+='<button class="btn btn-g btn-sm" onclick="unmarkRemoveDev('+m.id+','+i+')" title="삭제 취소">↩ 취소</button>';
     }
     html+='</div></div>';
   });
-  document.getElementById('dev-list').innerHTML=html||'<div class="empty"><div class="empty-icon">📱</div><div class="empty-txt">등록된 기기 없음</div></div>';
   
-  // 기기 추가 영역 (4대 미만일 때만)
+  // 2. 펜딩 추가 기기들 (회색 + ⏳ 마크)
+  devPending.adds.forEach((pend,pIdx)=>{
+    var rowIdx=devs.length+pIdx+1;
+    html+='<div class="dev-item" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:rgba(46,204,113,.08);border:1px dashed var(--green);border-radius:7px;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<div style="width:24px;height:24px;border-radius:5px;background:rgba(46,204,113,.3);color:var(--green);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">'+rowIdx+'</div>'
+      +'<div><div style="font-size:12px;font-weight:600">'+pend.label
+      +' <span style="font-size:9px;color:var(--green);background:rgba(46,204,113,.15);padding:1px 5px;border-radius:3px;margin-left:3px">⏳ 추가 예정</span>'
+      +'</div>'
+      +'<div style="font-size:10px;color:var(--text3);margin-top:2px">📅 +'+pend.days+'일 연장</div>'
+      +'</div></div>'
+      +'<div style="display:flex;align-items:center;gap:6px">'
+      +'<span style="font-size:11px;color:var(--green);font-weight:600">₩'+pend.fee.toLocaleString()+'</span>'
+      +'<button class="btn btn-d btn-sm" onclick="cancelPendingAdd('+pIdx+')">취소</button>'
+      +'</div></div>';
+  });
+  
+  if(!html){
+    html='<div class="empty"><div class="empty-icon">📱</div><div class="empty-txt">등록된 기기 없음</div></div>';
+  }
+  document.getElementById('dev-list').innerHTML=html;
+  
+  // 기기 추가 영역 (현재+펜딩 합쳐서 4대 미만일 때만)
+  var totalCnt=devs.filter(d=>devPending.removes.indexOf(d.id)<0).length+devPending.adds.length;
   var addArea=document.getElementById('dev-add-area');
-  if(devs.length<4){
-    // 다음 기기 번호 (메인 제외 N번째)
-    var nextNum=devs.filter(d=>!d.main).length+1;
-    var autoLabel=m.name+nextNum; // 예: "김지수1"
+  if(totalCnt<4){
+    var nextNum=devs.filter(d=>!d.main).length+devPending.adds.length+1;
+    var autoLabel=m.name+nextNum;
     
     addArea.innerHTML='<div style="border:1px dashed var(--border);border-radius:8px;padding:14px;background:var(--bg3)">'
-      +'<div style="font-size:11px;color:var(--text2);margin-bottom:10px">➕ 추가 기기 (최대 '+(4-devs.length)+'대 더 추가 가능)</div>'
+      +'<div style="font-size:11px;color:var(--text2);margin-bottom:10px">➕ 추가 기기 (최대 '+(4-totalCnt)+'대 더 추가 가능)</div>'
       +'<div style="background:var(--bg4);border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:12px">'
       +'<span style="color:var(--text3)">자동 라벨:</span> <strong style="color:var(--accent);font-family:monospace">'+autoLabel+'</strong>'
       +'<span style="color:var(--text3);font-size:10px;margin-left:6px">(회원이름+번호 자동 생성)</span>'
       +'</div>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
-      +'<div><label class="fl">💰 추가 요금 (원)</label><input class="fi2" type="number" id="add-dev-fee" placeholder="예: 15000" value="'+DEV_FEE+'"></div>'
+      +'<div><label class="fl">💰 추가 요금 (원)</label><input class="fi2" type="number" id="add-dev-fee" placeholder="예: 40000" value="'+DEV_FEE+'"></div>'
       +'<div><label class="fl">📅 이용 기간 (일)</label><input class="fi2" type="number" id="add-dev-days" placeholder="예: 40" value="40" min="1"></div>'
       +'</div>'
-      +'<button class="btn btn-p btn-sm" style="width:100%" onclick="addDev('+m.id+')">+ '+autoLabel+' 기기 추가</button>'
+      +'<button class="btn btn-b btn-sm" style="width:100%" onclick="addPendingDev('+m.id+')">+ '+autoLabel+' 미리 추가 (저장 전)</button>'
       +'</div>';
   } else {
     addArea.innerHTML='<div class="alert a-yellow">⚠️ 최대 4대 한도 도달 (메인폰 1 + 추가 3)</div>';
   }
   
-  // 총 요금 계산
-  var total=devs.reduce((sum,d,i)=>sum+(d.main?BASE_FEE:(d.fee!==undefined&&d.fee!==null?d.fee:DEV_FEE)),0);
+  // 펜딩 변경사항 안내
+  var pendCount=devPending.adds.length+devPending.removes.length+Object.keys(devPending.feeChanges).length;
+  var saveBar=document.getElementById('dev-save-bar');
+  if(saveBar){
+    if(pendCount>0){
+      saveBar.style.display='flex';
+      saveBar.querySelector('.pending-info').textContent='⏳ 미저장 변경사항: '+pendCount+'건 (추가 '+devPending.adds.length+' / 삭제 '+devPending.removes.length+' / 요금변경 '+Object.keys(devPending.feeChanges).length+')';
+    } else {
+      saveBar.style.display='none';
+    }
+  }
+  
+  // 총 요금 (펜딩 반영)
+  var total=0;
+  devs.forEach((d,i)=>{
+    if(devPending.removes.indexOf(d.id)>=0)return; // 삭제 예정 제외
+    var f=devPending.feeChanges[i]!==undefined?devPending.feeChanges[i]:(d.main?BASE_FEE:(d.fee!==undefined&&d.fee!==null?d.fee:DEV_FEE));
+    total+=f;
+  });
+  devPending.adds.forEach(p=>{total+=p.fee;});
   document.getElementById('dev-total').textContent='₩'+total.toLocaleString();
 }
 
-async function addDev(mid){
+// 펜딩 추가
+function addPendingDev(mid){
   var m=members.find(x=>x.id===mid);
-  if(!m){showToast('회원을 찾을 수 없습니다','error');return;}
-  var fee=parseInt(document.getElementById('add-dev-fee').value)||DEV_FEE;
-  var days=parseInt(document.getElementById('add-dev-days').value)||40;
+  if(!m)return;
+  var feeEl=document.getElementById('add-dev-fee');
+  var daysEl=document.getElementById('add-dev-days');
+  var fee=parseInt(feeEl.value)||DEV_FEE;
+  var days=parseInt(daysEl.value)||40;
+  if(days<1){showToast('이용 기간은 1일 이상이어야 합니다','error');return;}
   
-  // 자동 라벨 생성: 회원이름 + 번호 (메인 제외 N번째)
-  var nextNum=m.devices.filter(d=>!d.main).length+1;
+  var nextNum=m.devices.filter(d=>!d.main).length+devPending.adds.length+1;
   var autoLabel=m.name+nextNum;
   
-  try{
-    const {data,error}=await sb.from('user_devices').insert({
-      user_id:mid,
-      label:autoLabel,
-      phone_number:null
-    }).select().single();
-    if(error)throw error;
-    
-    // 캐시 업데이트
-    m.devices.push({
-      id:data.id,
-      num:m.devices.length+1,
-      label:autoLabel,
-      platform:'toss',
-      fee:fee,
-      main:false
-    });
-    
-    // 회원 이용권 만료일도 days 만큼 자동 연장
-    var base=m.expire?pd(m.expire):new Date();
-    if(!base||isNaN(base))base=new Date();
-    if(base<new Date())base=new Date();
-    base.setDate(base.getDate()+days);
-    const {error:ue}=await sb.from('users').update({
-      license_expires_at:base.toISOString(),
-      is_free_user:false
-    }).eq('id',mid);
-    if(ue)throw ue;
-    m.expire=fd(base);
-    m.plan='paid';
-    
-    showToast(autoLabel+' 추가 완료 — 이용권 '+days+'일 연장','success');
-    renderDevList(m);
-  }catch(e){
-    showToast('추가 실패: '+e.message,'error');
-  }
+  devPending.adds.push({label:autoLabel,fee:fee,days:days});
+  showToast('미리 추가됨 — 저장하기를 눌러야 실제 반영됩니다','info');
+  renderDevList(m);
 }
 
-async function removeDev(mid,idx){
+// 펜딩 추가 취소
+function cancelPendingAdd(pIdx){
+  devPending.adds.splice(pIdx,1);
+  var m=members.find(x=>x.id===devPending.mid);
+  renderDevList(m);
+}
+
+// 삭제 예정 표시
+function markRemoveDev(mid,idx){
   var m=members.find(x=>x.id===mid);
   if(!m||!m.devices[idx])return;
   var dev=m.devices[idx];
   if(dev.main){showToast('메인 기기는 삭제할 수 없습니다','error');return;}
-  if(!confirm('"'+dev.label+'" 기기를 삭제하시겠습니까?'))return;
-  
-  try{
-    if(dev.id){
-      const {error}=await sb.from('user_devices').delete().eq('id',dev.id);
-      if(error)throw error;
-    }
-    m.devices.splice(idx,1);
-    // num 재정렬
-    m.devices.forEach((d,i)=>{d.num=i+1;});
-    showToast('기기 삭제 완료','success');
-    renderDevList(m);
-  }catch(e){
-    showToast('삭제 실패: '+e.message,'error');
-  }
+  devPending.removes.push(dev.id);
+  renderDevList(m);
 }
 
-function updateDevFee(mid,idx,val){
+// 삭제 예정 취소
+function unmarkRemoveDev(mid,idx){
   var m=members.find(x=>x.id===mid);
   if(!m||!m.devices[idx])return;
-  m.devices[idx].fee=parseInt(val)||0;
-  // 총 요금 갱신
-  var total=m.devices.reduce((sum,d,i)=>sum+(d.main?BASE_FEE:(d.fee!==undefined&&d.fee!==null?d.fee:DEV_FEE)),0);
-  document.getElementById('dev-total').textContent='₩'+total.toLocaleString();
-  // 참고: fee 는 어드민 화면 캐시만 — DB 영속화하려면 user_devices 에 fee 컬럼 추가 필요
+  var dev=m.devices[idx];
+  var rIdx=devPending.removes.indexOf(dev.id);
+  if(rIdx>=0)devPending.removes.splice(rIdx,1);
+  renderDevList(m);
+}
+
+// 요금 변경 펜딩
+function markDevFee(idx,val){
+  devPending.feeChanges[idx]=parseInt(val)||0;
+  var m=members.find(x=>x.id===devPending.mid);
+  renderDevList(m);
+}
+
+// 펜딩 모두 취소
+function cancelAllDevChanges(){
+  if(devPending.adds.length+devPending.removes.length+Object.keys(devPending.feeChanges).length===0){
+    closeModal('modal-device');return;
+  }
+  if(!confirm('미저장 변경사항을 모두 취소하시겠습니까?'))return;
+  devPending={mid:devPending.mid,adds:[],removes:[],feeChanges:{},daysToExtend:0};
+  var m=members.find(x=>x.id===devPending.mid);
+  renderDevList(m);
+}
+
+// ★ 저장 — 모든 펜딩 변경을 DB 에 한 번에 반영
+async function saveAllDevChanges(){
+  var m=members.find(x=>x.id===devPending.mid);
+  if(!m){showToast('회원을 찾을 수 없습니다','error');return;}
+  
+  var pendCount=devPending.adds.length+devPending.removes.length+Object.keys(devPending.feeChanges).length;
+  if(pendCount===0){showToast('변경사항이 없습니다','info');return;}
+  
+  if(!confirm('변경사항 '+pendCount+'건을 저장하시겠습니까?\n\n추가: '+devPending.adds.length+'건\n삭제: '+devPending.removes.length+'건\n요금변경: '+Object.keys(devPending.feeChanges).length+'건'))return;
+  
+  try{
+    var totalDays=0;
+    
+    // 1. 삭제 예정 처리
+    for(var rid of devPending.removes){
+      const {error}=await sb.from('user_devices').delete().eq('id',rid);
+      if(error)throw new Error('삭제 실패: '+error.message);
+    }
+    
+    // 2. 추가 예정 처리
+    for(var addItem of devPending.adds){
+      const {data,error}=await sb.from('user_devices').insert({
+        user_id:m.id,
+        label:addItem.label,
+        phone_number:''  // 빈 문자열 (NOT NULL 제약 회피용 — DB 변경했으면 null 도 가능)
+      }).select().single();
+      if(error)throw new Error('추가 실패: '+error.message);
+      // 캐시 업데이트
+      m.devices.push({id:data.id,num:m.devices.length+1,label:addItem.label,platform:'toss',fee:addItem.fee,main:false});
+      totalDays+=addItem.days;
+    }
+    
+    // 3. 만료일 연장 (모든 추가 일수 합산)
+    if(totalDays>0){
+      var base=m.expire?pd(m.expire):new Date();
+      if(!base||isNaN(base))base=new Date();
+      if(base<new Date())base=new Date();
+      base.setDate(base.getDate()+totalDays);
+      const {error:ue}=await sb.from('users').update({
+        license_expires_at:base.toISOString(),
+        is_free_user:false
+      }).eq('id',m.id);
+      if(ue)throw new Error('만료일 연장 실패: '+ue.message);
+      m.expire=fd(base);
+      m.plan='paid';
+    }
+    
+    // 4. 캐시에서 삭제된 기기 제거
+    m.devices=m.devices.filter(d=>devPending.removes.indexOf(d.id)<0);
+    
+    // 5. 요금 변경 (캐시만)
+    Object.keys(devPending.feeChanges).forEach(idx=>{
+      if(m.devices[parseInt(idx)])m.devices[parseInt(idx)].fee=devPending.feeChanges[idx];
+    });
+    
+    showToast('✅ 저장 완료 — '+pendCount+'건 반영'+(totalDays>0?' · 이용권 '+totalDays+'일 연장':''),'success');
+    
+    // 펜딩 초기화 + 모달 닫기 + 화면 갱신
+    devPending={mid:null,adds:[],removes:[],feeChanges:{},daysToExtend:0};
+    closeModal('modal-device');
+    navigate('license');
+  }catch(e){
+    showToast('저장 실패: '+e.message,'error');
+  }
 }
 
 // =====================================================================
