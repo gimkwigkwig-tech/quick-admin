@@ -1608,7 +1608,7 @@ function renderRevenue(){
     var directRev=parseFloat(b.revenue||0)+(memberRevenue[b.id]||0);
     var canDrill=children.length>0;
     
-    var h='<div class="rv-node" style="margin-left:'+(depth*14)+'px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;'+(canDrill?'cursor:pointer;transition:.15s":'')+'" '
+    var h='<div class="rv-node" style="margin-left:'+(depth*14)+'px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;'+(canDrill?'cursor:pointer;transition:.15s':'')+'" '
       +(canDrill?'onclick="revDrillNode='+b.id+';navigate(\'revenue\')" onmouseover="this.style.borderColor=\''+col[b.type]+'\'" onmouseout="this.style.borderColor=\'var(--border)\'"':'')+'>'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">'
         +'<div style="flex:1"><div style="font-weight:700;font-size:13px"><span class="badge bg-'+b.type+'">'+lbl[b.type]+'</span> '+ico[b.type]+' '+b.name+(canDrill?' <span style="font-size:10px;color:'+col[b.type]+'">▶ 클릭</span>':'')+'</div>'
