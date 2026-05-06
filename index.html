@@ -302,8 +302,8 @@ tr:last-child td{border-bottom:none}tr:hover td{background:rgba(255,255,255,.015
 
 <!-- MEMBER MODAL -->
 <div class="modal-bg" id="modal-member">
-  <div class="modal-box">
-    <div class="mh"><div class="mt">회원 상세</div><button class="mc" onclick="closeModal('modal-member')">×</button></div>
+  <div class="modal-box" style="max-width:560px">
+    <div class="mh"><div class="mt" id="modal-member-title">회원 상세</div><button class="mc" onclick="closeModal('modal-member')">×</button></div>
     <div id="modal-member-body"></div>
   </div>
 </div>
@@ -519,6 +519,39 @@ function memberIsVisible(m){
   return vis.indexOf(m.branch_id)>=0;
 }
 
+// ★ 회원 소속 조직 경로 표시 헬퍼 (지점 → 지사 → 총판)
+// 결과 예: "🏢 테스트서울총판 › 🏬 강남지사 › 📍 강남1지점"
+// short=true 면 마지막 노드만 (예: "📍 강남1지점")
+function branchPath(branchId,short){
+  if(branchId==null)return '<span style="color:var(--text3);font-style:italic">미배정</span>';
+  var node=branches.find(b=>b.id===branchId);
+  if(!node)return '<span style="color:var(--text3);font-style:italic">알수없음</span>';
+  var ico={master:'🏢',branch:'🏬',sub:'📍'};
+  var col={master:'var(--c-master)',branch:'var(--c-branch)',sub:'var(--c-sub)'};
+  
+  if(short){
+    return '<span style="color:'+col[node.type]+';font-size:11px">'+ico[node.type]+' '+node.name+'</span>';
+  }
+  
+  // 상위로 올라가면서 경로 모으기
+  var path=[];
+  var cur=node;
+  var safety=10;
+  while(cur&&safety-->0){
+    path.unshift({name:cur.name,type:cur.type});
+    cur=cur.parent_id?branches.find(b=>b.id===cur.parent_id):null;
+  }
+  return path.map(p=>'<span style="color:'+col[p.type]+'">'+ico[p.type]+' '+p.name+'</span>').join('<span style="color:var(--text3);margin:0 4px">›</span>');
+}
+
+// ★ 사용 앱 배지 (토스/그랩)
+function appBadge(appType){
+  if(appType==='grab'){
+    return '<span class="badge bg-grab" style="font-size:10px">🛵 그랩</span>';
+  }
+  return '<span class="badge bg-toss" style="font-size:10px">🚗 토스</span>';
+}
+
 // =====================================================================
 //   HELPERS
 // =====================================================================
@@ -627,7 +660,8 @@ async function loadAllData(){
       username:u.username,
       phone:u.phone,
       residentNum:u.resident_num,
-      signupApp:'toss', // 추후 컬럼 추가 시 변경
+      signupApp:u.app_type||'toss',  // ★ 사용 앱 (toss/grab)
+      appType:u.app_type||'toss',
       status:u.status||'pending',
       plan:u.is_free_user?'free':'paid',
       expire:u.license_expires_at?isoToFd(u.license_expires_at):'',
@@ -640,12 +674,12 @@ async function loadAllData(){
       createdAt:u.created_at,
       // 호환성 필드
       orgType:'sub',orgId:'manual',
-      devices:[{num:1,label:'1'+(u.real_name||u.username),platform:'toss',fee:0,main:true}].concat(
+      devices:[{num:1,label:'1'+(u.real_name||u.username),platform:u.app_type||'toss',fee:0,main:true}].concat(
         (deviceData||[]).filter(d=>d.user_id===u.id).map((d,i)=>({
           id:d.id,
           num:i+2,
           label:d.label||((i+2)+(u.real_name||u.username)),
-          platform:'toss',
+          platform:u.app_type||'toss',
           fee:DEV_FEE,
           main:false,
           phone_number:d.phone_number
@@ -653,8 +687,8 @@ async function loadAllData(){
       )
     }));
     
-    // 결제 요청 로드 (회원의 branch_id 도 같이)
-    const {data:payData,error:pErr}=await sb.from('payment_requests').select('*,users(real_name,username,phone,branch_id)').order('created_at',{ascending:false});
+    // 결제 요청 로드 (회원의 branch_id + app_type 도 같이)
+    const {data:payData,error:pErr}=await sb.from('payment_requests').select('*,users(real_name,username,phone,branch_id,app_type)').order('created_at',{ascending:false});
     if(pErr)throw pErr;
     payments=(payData||[]).map(p=>({
       id:p.id,
@@ -663,7 +697,8 @@ async function loadAllData(){
       username:p.users?p.users.username:'-',
       phone:p.users?p.users.phone:'-',
       branch_id:p.users?p.users.branch_id:null,  // ★ 권한 격리에 필요
-      platform:'toss',
+      platform:p.users?(p.users.app_type||'toss'):'toss',  // ★ 사용 앱
+      appType:p.users?(p.users.app_type||'toss'):'toss',
       amount:p.amount,
       date:isoToFd(p.created_at),
       processedAt:p.processed_at,
@@ -969,17 +1004,19 @@ function renderMembers(){
   if(!list.length){
     html+='<div class="empty"><div class="empty-icon">👤</div><div class="empty-txt">'+(members.length===0?'아직 가입한 회원이 없습니다':'해당 조건의 회원이 없습니다')+'</div></div>';
   } else {
-    html+='<div class="tw"><table><thead><tr><th>기사</th><th>전화</th><th>가입일</th><th>상태</th><th>이용권</th><th>D-day</th><th>관리</th></tr></thead><tbody>';
+    html+='<div class="tw"><table><thead><tr><th>기사</th><th>앱</th><th>소속</th><th>전화</th><th>가입일</th><th>상태</th><th>이용권</th><th>D-day</th><th>관리</th></tr></thead><tbody>';
     list.forEach(function(m){
       var c=ac(m.id);
       html+='<tr><td><div class="minfo"><div class="mavatar" style="background:'+c+'22;color:'+c+'">'+(m.name?m.name[0]:'?')+'</div><div><div class="mname">'+m.name+'</div><div class="mid">@'+m.username+'</div></div></div></td>'
+      +'<td>'+appBadge(m.appType)+'</td>'
+      +'<td style="font-size:11px">'+branchPath(m.branch_id,true)+'</td>'
       +'<td style="font-size:11px">'+(m.phone||'-')+'</td>'
       +'<td style="font-size:11px;color:var(--text2)">'+isoToFd(m.createdAt)+'</td>'
       +'<td><span class="badge '+(sb_[m.status]||'bg-gray')+'">'+(sl[m.status]||m.status)+'</span></td>'
       +'<td><span class="badge '+(m.plan==='free'?'bg-purple':'bg-green')+'">'+(m.plan==='free'?'무료':'유료')+'</span></td>'
       +'<td>'+(m.status==='approved'?expBadge(m.expire):'-')+'</td>'
       +'<td><div style="display:flex;gap:4px;flex-wrap:wrap">'
-      +(m.status==='pending'?'<button class="btn btn-s btn-sm" onclick="approveM('+m.id+')">승인</button><button class="btn btn-d btn-sm" onclick="rejectM('+m.id+')">거절</button>':'<button class="btn btn-g btn-sm" onclick="showMember('+m.id+')">상세</button>')
+      +(m.status==='pending'?'<button class="btn btn-s btn-sm" onclick="approveM('+m.id+')">승인</button><button class="btn btn-d btn-sm" onclick="rejectM('+m.id+')">거절</button><button class="btn btn-g btn-sm" onclick="showMember('+m.id+')">상세</button>':'<button class="btn btn-g btn-sm" onclick="showMember('+m.id+')">상세</button>')
       +'<button class="btn btn-d btn-sm" onclick="deleteM('+m.id+')">삭제</button>'
       +'</div></td></tr>';
     });
@@ -1054,19 +1091,94 @@ async function deleteM(id){
 
 function showMember(id){
   var m=members.find(function(x){return x.id===id;});if(!m)return;
-  document.getElementById('modal-member-body').innerHTML='<div style="font-size:13px;line-height:2.2;color:var(--text2)">'
-    +'<b style="color:var(--text)">이름:</b> '+m.name+'<br>'
-    +'<b style="color:var(--text)">아이디:</b> @'+m.username+'<br>'
-    +'<b style="color:var(--text)">전화:</b> '+(m.phone||'-')+'<br>'
-    +'<b style="color:var(--text)">주민번호:</b> '+(m.residentNum||'-')+'<br>'
-    +'<b style="color:var(--text)">텔레그램:</b> '+(m.telegramId||'-')+'<br>'
-    +'<b style="color:var(--text)">가입일:</b> '+isoToFd(m.createdAt)+'<br>'
-    +'<b style="color:var(--text)">승인일:</b> '+(m.approvedAt?isoToFd(m.approvedAt):'-')+'<br>'
-    +'<b style="color:var(--text)">최근 로그인:</b> '+(m.lastLoginAt?isoToFd(m.lastLoginAt):'-')+'<br>'
-    +'<b style="color:var(--text)">이용권:</b> '+(m.plan==='free'?'무료':'유료')+' / 만료: '+(m.expire||'-')+'<br>'
-    +'<b style="color:var(--text)">메모:</b> '+(m.memo||'-')
+  document.getElementById('modal-member-title').textContent='👤 '+m.name+' 회원 정보';
+  
+  // 상태 라벨 + 색상
+  var sb_={approved:'bg-green',pending:'bg-yellow',rejected:'bg-red',suspended:'bg-gray'};
+  var sl={approved:'승인',pending:'대기',rejected:'거절',suspended:'정지'};
+  
+  // 가입 정보 (읽기 전용 표시)
+  var infoHtml='<div style="background:var(--bg3);border-radius:7px;padding:12px;margin-bottom:14px;font-size:11px">'
+    +'<div style="display:flex;justify-content:space-between;margin-bottom:6px;align-items:flex-start;flex-wrap:wrap;gap:6px"><span style="color:var(--text3);min-width:80px">소속</span><span style="text-align:right;flex:1;line-height:1.6">'+branchPath(m.branch_id,false)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--text3)">가입일</span><span>'+isoToFd(m.createdAt)+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--text3)">승인일</span><span>'+(m.approvedAt?isoToFd(m.approvedAt):'-')+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--text3)">최근 로그인</span><span>'+(m.lastLoginAt?isoToFd(m.lastLoginAt):'-')+'</span></div>'
+    +'<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">상태</span><span class="badge '+(sb_[m.status]||'bg-gray')+'">'+(sl[m.status]||m.status)+'</span></div>'
     +'</div>';
+  
+  // 편집 가능 폼
+  var formHtml='<div class="alert a-blue">✏️ 잘못 기입된 정보가 있으면 직접 수정 후 저장 버튼을 눌러주세요</div>'
+    +'<div class="fg"><label class="fl">이름</label><input class="fi2" id="mem-name" value="'+(m.name||'').replace(/"/g,'&quot;')+'"></div>'
+    +'<div class="fg"><label class="fl">아이디 (변경 불가)</label><input class="fi2" value="@'+m.username+'" disabled style="opacity:.6"></div>'
+    // 사용 앱 라디오
+    +'<div class="fg"><label class="fl">📱 사용 앱</label>'
+    +'<div style="display:flex;gap:8px">'
+    +'<label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;background:var(--bg4);border-radius:6px;cursor:pointer;font-size:12px;border:1px solid '+(m.appType!=='grab'?'var(--toss)':'var(--border)')+'">'
+    +'<input type="radio" name="mem-apptype" value="toss"'+(m.appType!=='grab'?' checked':'')+'>'
+    +'<span>🚗 <strong>토스</strong> <span style="color:var(--text3);font-size:10px">(모든 차종)</span></span>'
+    +'</label>'
+    +'<label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;background:var(--bg4);border-radius:6px;cursor:pointer;font-size:12px;border:1px solid '+(m.appType==='grab'?'var(--grab)':'var(--border)')+'">'
+    +'<input type="radio" name="mem-apptype" value="grab"'+(m.appType==='grab'?' checked':'')+'>'
+    +'<span>🛵 <strong>그랩</strong> <span style="color:var(--text3);font-size:10px">(오토바이 전용)</span></span>'
+    +'</label>'
+    +'</div></div>'
+    +'<div class="fg"><label class="fl">전화</label><input class="fi2" id="mem-phone" value="'+(m.phone||'').replace(/"/g,'&quot;')+'" placeholder="010-0000-0000"></div>'
+    +'<div class="fg"><label class="fl">주민번호 앞 6자리</label><input class="fi2" id="mem-rrn" value="'+(m.residentNum||'').replace(/"/g,'&quot;')+'" placeholder="900101-1******" maxlength="14"></div>'
+    +'<div class="fg"><label class="fl">텔레그램 ID</label><input class="fi2" id="mem-tg" value="'+(m.telegramId||'').replace(/"/g,'&quot;')+'" placeholder="@telegram_id"></div>'
+    // 어드민 메모
+    +'<div class="fg"><label class="fl">📝 어드민 메모 <span style="color:var(--text3);font-size:10px;font-weight:400">(어드민만 볼 수 있음, 회원에겐 노출 안 됨)</span></label>'
+    +'<textarea class="fi2" id="mem-memo" rows="3" placeholder="이 회원에 대한 메모를 자유롭게 적어주세요. 예: 신원확인 완료, 특이사항 등">'+(m.memo||'').replace(/</g,'&lt;')+'</textarea></div>'
+    // 액션 버튼
+    +'<div style="display:flex;gap:8px;margin-top:14px">'
+    +'<button class="btn btn-g" style="flex:1" onclick="closeModal(\'modal-member\')">닫기</button>'
+    +'<button class="btn btn-p" style="flex:2" onclick="saveMemberInfo('+m.id+')">💾 회원 정보 저장</button>'
+    +'</div>';
+  
+  document.getElementById('modal-member-body').innerHTML=infoHtml+formHtml;
   document.getElementById('modal-member').classList.add('open');
+}
+
+async function saveMemberInfo(id){
+  var m=members.find(x=>x.id===id);
+  if(!m){showToast('회원을 찾을 수 없습니다','error');return;}
+  var name=document.getElementById('mem-name').value.trim();
+  var phone=document.getElementById('mem-phone').value.trim();
+  var rrn=document.getElementById('mem-rrn').value.trim();
+  var tg=document.getElementById('mem-tg').value.trim();
+  var memo=document.getElementById('mem-memo').value;
+  var appTypeEl=document.querySelector('input[name="mem-apptype"]:checked');
+  var appType=appTypeEl?appTypeEl.value:'toss';
+  
+  if(!name){showToast('이름은 필수입니다','error');return;}
+  if(tg&&!tg.startsWith('@'))tg='@'+tg;
+  
+  try{
+    const {error}=await sb.from('users').update({
+      real_name:name,
+      phone:phone||null,
+      resident_num:rrn||null,
+      telegram_id:tg||null,
+      memo:memo||null,
+      app_type:appType,
+      updated_at:new Date().toISOString()
+    }).eq('id',id);
+    if(error)throw error;
+    
+    // 캐시 업데이트
+    m.name=name;
+    m.phone=phone;
+    m.residentNum=rrn;
+    m.telegramId=tg;
+    m.memo=memo;
+    m.appType=appType;
+    m.signupApp=appType;
+    
+    showToast('회원 정보 저장 완료','success');
+    closeModal('modal-member');
+    navigate(page);
+  }catch(e){
+    showToast('저장 실패: '+e.message,'error');
+  }
 }
 
 // =====================================================================
@@ -1127,11 +1239,13 @@ function renderLicense(){
   if(!list.length){
     html+='<div class="empty"><div class="empty-icon">📋</div><div class="empty-txt">해당 조건의 회원이 없습니다</div></div>';
   } else {
-    html+='<div class="tw"><table><thead><tr><th>기사</th><th>이용권</th><th>기기</th><th>만료일 설정</th><th>D-day</th><th>관리</th></tr></thead><tbody>';
+    html+='<div class="tw"><table><thead><tr><th>기사</th><th>앱</th><th>소속</th><th>이용권</th><th>기기</th><th>만료일 설정</th><th>D-day</th><th>관리</th></tr></thead><tbody>';
     list.forEach(function(m){
       var c=ac(m.id);
       var devCnt=(m.devices||[]).length;
       html+='<tr><td><div class="minfo"><div class="mavatar" style="background:'+c+'22;color:'+c+'">'+(m.name?m.name[0]:'?')+'</div><div><div class="mname">'+m.name+'</div><div class="mid">@'+m.username+'</div></div></div></td>'
+      +'<td>'+appBadge(m.appType)+'</td>'
+      +'<td style="font-size:11px">'+branchPath(m.branch_id,true)+'</td>'
       +'<td><span class="badge '+(m.plan==='free'?'bg-purple':'bg-green')+'">'+(m.plan==='free'?'무료':'유료')+'</span></td>'
       +'<td><button class="btn btn-b btn-sm" onclick="openDevModal('+m.id+')">📱 '+devCnt+'대 관리</button></td>'
       +'<td style="min-width:140px"><div class="cal-wrap"><input class="cal-inp" id="exp-'+m.id+'" value="'+(m.expire||'')+'" placeholder="날짜 선택" readonly onclick="openCal('+m.id+')"><div class="cal-dropdown" id="cdd-'+m.id+'"></div></div></td>'
@@ -1237,7 +1351,7 @@ function renderDevList(m){
       +'<div><div style="font-size:12px;font-weight:600">'+pend.label
       +' <span style="font-size:9px;color:var(--green);background:rgba(46,204,113,.15);padding:1px 5px;border-radius:3px;margin-left:3px">⏳ 추가 예정</span>'
       +'</div>'
-      +'<div style="font-size:10px;color:var(--text3);margin-top:2px">📅 +'+pend.days+'일 연장</div>'
+      +'<div style="font-size:10px;color:var(--text3);margin-top:2px">📅 '+(pend.modeLabel||(pend.days>0?'+'+pend.days+'일':'만료일 유지'))+'</div>'
       +'</div></div>'
       +'<div style="display:flex;align-items:center;gap:6px">'
       +'<span style="font-size:11px;color:var(--green);font-weight:600">₩'+pend.fee.toLocaleString()+'</span>'
@@ -1257,16 +1371,43 @@ function renderDevList(m){
     var nextNum=devs.filter(d=>!d.main).length+devPending.adds.length+1;
     var autoLabel=m.name+nextNum;
     
+    // 회원 만료일까지 남은 일수 (참고용)
+    var memberExpDate=m.expire?pd(m.expire):null;
+    var daysToMemberExp=null;
+    if(memberExpDate){
+      var diff=memberExpDate-new Date();
+      daysToMemberExp=Math.ceil(diff/(1000*60*60*24));
+      if(daysToMemberExp<0)daysToMemberExp=0;
+    }
+    
     addArea.innerHTML='<div style="border:1px dashed var(--border);border-radius:8px;padding:14px;background:var(--bg3)">'
       +'<div style="font-size:11px;color:var(--text2);margin-bottom:10px">➕ 추가 기기 (최대 '+(4-totalCnt)+'대 더 추가 가능)</div>'
       +'<div style="background:var(--bg4);border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:12px">'
       +'<span style="color:var(--text3)">자동 라벨:</span> <strong style="color:var(--accent);font-family:monospace">'+autoLabel+'</strong>'
       +'<span style="color:var(--text3);font-size:10px;margin-left:6px">(회원이름+번호 자동 생성)</span>'
       +'</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
-      +'<div><label class="fl">💰 추가 요금 (원)</label><input class="fi2" type="number" id="add-dev-fee" placeholder="예: 40000" value="'+DEV_FEE+'"></div>'
-      +'<div><label class="fl">📅 이용 기간 (일)</label><input class="fi2" type="number" id="add-dev-days" placeholder="예: 40" value="40" min="1"></div>'
-      +'</div>'
+      // 요금
+      +'<div style="margin-bottom:12px"><label class="fl">💰 추가 요금 (원)</label><input class="fi2" type="number" id="add-dev-fee" placeholder="예: 40000" value="'+DEV_FEE+'"></div>'
+      // 기한 방식 — 라디오 3개
+      +'<div style="margin-bottom:10px"><label class="fl">📅 이용 기한 방식</label>'
+      +'<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">'
+      // 옵션 1: 회원 만료일까지
+      +'<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg4);border-radius:6px;cursor:pointer;font-size:12px">'
+      +'<input type="radio" name="dev-expmode" value="member" checked onchange="onDevExpModeChange()">'
+      +'<span><strong>회원 만료일까지</strong> '+(daysToMemberExp!==null?'<span style="color:var(--accent);font-size:11px">(현재 D-'+daysToMemberExp+', '+m.expire+')</span>':'<span style="color:var(--red);font-size:11px">(만료일 미설정)</span>')+'</span>'
+      +'</label>'
+      // 옵션 2: 다른 일수 지정
+      +'<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg4);border-radius:6px;cursor:pointer;font-size:12px">'
+      +'<input type="radio" name="dev-expmode" value="custom" onchange="onDevExpModeChange()">'
+      +'<span><strong>다른 일수 지정</strong> — 회원 만료일 + 추가 N일 연장</span>'
+      +'</label>'
+      +'<div id="dev-custom-days" style="display:none;padding-left:28px"><input class="fi2" type="number" id="add-dev-days" placeholder="추가 연장 일수 (예: 40)" value="40" min="1"></div>'
+      // 옵션 3: 연장 안 함
+      +'<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg4);border-radius:6px;cursor:pointer;font-size:12px">'
+      +'<input type="radio" name="dev-expmode" value="none" onchange="onDevExpModeChange()">'
+      +'<span><strong>연장 안 함</strong> — 기기만 추가, 만료일 변경 없음</span>'
+      +'</label>'
+      +'</div></div>'
       +'<button class="btn btn-b btn-sm" style="width:100%" onclick="addPendingDev('+m.id+')">+ '+autoLabel+' 미리 추가 (저장 전)</button>'
       +'</div>';
   } else {
@@ -1296,20 +1437,42 @@ function renderDevList(m){
   document.getElementById('dev-total').textContent='₩'+total.toLocaleString();
 }
 
+// 라디오 변경 시 — "다른 일수 지정" 일 때만 입력칸 표시
+function onDevExpModeChange(){
+  var mode=document.querySelector('input[name="dev-expmode"]:checked').value;
+  document.getElementById('dev-custom-days').style.display=(mode==='custom'?'block':'none');
+}
+
 // 펜딩 추가
 function addPendingDev(mid){
   var m=members.find(x=>x.id===mid);
   if(!m)return;
   var feeEl=document.getElementById('add-dev-fee');
-  var daysEl=document.getElementById('add-dev-days');
   var fee=parseInt(feeEl.value)||DEV_FEE;
-  var days=parseInt(daysEl.value)||40;
-  if(days<1){showToast('이용 기간은 1일 이상이어야 합니다','error');return;}
+  var modeEl=document.querySelector('input[name="dev-expmode"]:checked');
+  var mode=modeEl?modeEl.value:'member';
+  
+  var days=0;  // 추가 연장 일수 (0 = 만료일 변경 없음)
+  var modeLabel='';
+  
+  if(mode==='member'){
+    // 회원 만료일까지 — 만료일 변경 없음 (기기만 추가, 같은 만료일 공유)
+    days=0;
+    modeLabel='회원 만료일까지';
+  } else if(mode==='custom'){
+    var daysEl=document.getElementById('add-dev-days');
+    days=parseInt(daysEl.value)||0;
+    if(days<1){showToast('연장 일수는 1일 이상이어야 합니다','error');return;}
+    modeLabel='+'+days+'일 추가 연장';
+  } else if(mode==='none'){
+    days=0;
+    modeLabel='연장 안 함';
+  }
   
   var nextNum=m.devices.filter(d=>!d.main).length+devPending.adds.length+1;
   var autoLabel=m.name+nextNum;
   
-  devPending.adds.push({label:autoLabel,fee:fee,days:days});
+  devPending.adds.push({label:autoLabel,fee:fee,days:days,modeLabel:modeLabel});
   showToast('미리 추가됨 — 저장하기를 눌러야 실제 반영됩니다','info');
   renderDevList(m);
 }
@@ -1585,15 +1748,16 @@ function renderPayment(){
   +'<div class="card" style="padding:0"><div class="card-head" style="padding:12px 16px"><div class="card-title">입금 신청 내역</div><span style="font-size:11px;color:var(--text2)">총 '+list.length+'건</span></div>';
   if(!list.length)html+='<div class="empty"><div class="empty-icon">💳</div><div class="empty-txt">입금 신청이 없습니다</div></div>';
   else{
-    html+='<div class="tw"><table><thead><tr><th>기사</th><th>금액</th><th>신청일</th><th>처리일</th><th>상태</th><th>메모</th><th>관리</th></tr></thead><tbody>';
+    html+='<div class="tw"><table><thead><tr><th>기사</th><th>앱</th><th>소속</th><th>금액</th><th>신청일</th><th>처리일</th><th>상태</th><th>관리</th></tr></thead><tbody>';
     list.forEach(function(p){
       var c=ac(p.id);
       html+='<tr><td><div class="minfo"><div class="mavatar" style="background:'+c+'22;color:'+c+'">'+(p.name?p.name[0]:'?')+'</div><div><div class="mname">'+p.name+'</div><div class="mid">@'+p.username+'</div></div></div></td>'
+      +'<td>'+appBadge(p.appType)+'</td>'
+      +'<td style="font-size:11px">'+branchPath(p.branch_id,true)+'</td>'
       +'<td style="font-weight:700;color:'+(p.status==='approved'?'var(--green)':'var(--text2)')+'">₩'+(p.amount||0).toLocaleString()+'</td>'
       +'<td style="font-size:11px;color:var(--text2)">'+p.date+'</td>'
       +'<td style="font-size:11px;color:var(--text3)">'+(p.processedAt?isoToFd(p.processedAt):'-')+'</td>'
       +'<td><span class="badge '+(p.status==='pending'?'bg-yellow':p.status==='approved'?'bg-green':'bg-red')+'">'+(p.status==='pending'?'대기':p.status==='approved'?'승인':'거절')+'</span></td>'
-      +'<td style="font-size:11px;color:var(--text2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(p.note||p.adminNote||'').replace(/"/g,'&quot;')+'">'+(p.note||p.adminNote||'-')+'</td>'
       +'<td><div style="display:flex;gap:4px">'+(p.status==='pending'?'<button class="btn btn-s btn-sm" onclick="approveP('+p.id+')">승인</button><button class="btn btn-d btn-sm" onclick="rejectP('+p.id+')">거절</button>':'<span style="font-size:11px;color:var(--text3)">완료</span>')+'</div></td></tr>';
     });
     html+='</tbody></table></div>';
