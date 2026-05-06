@@ -871,18 +871,36 @@ function setPlatform(p,el){
   navigate(page);
 }
 
+// ★ 현재 platform 탭(전체통합/토스/그랩) 에 따라 회원/결제 필터링
+function memberMatchesPlatform(m){
+  if(platform==='all')return true;
+  return (m.appType||'toss')===platform;
+}
+function paymentMatchesPlatform(p){
+  if(platform==='all')return true;
+  return (p.appType||'toss')===platform;
+}
+
 // =====================================================================
 //   DASHBOARD
 // =====================================================================
 function renderDash(){
-  // ★ 권한 격리 — 본인 산하 회원/결제만 집계
-  var visMembers=members.filter(memberIsVisible);
+  // ★ 권한 격리 — 본인 산하 회원/결제만 집계 + platform 필터
+  var visMembers=members.filter(memberIsVisible).filter(memberMatchesPlatform);
   var visPayments=payments.filter(p=>{
     var vis=getVisibleBranchIds();
-    if(vis===null)return true;
+    if(vis===null)return paymentMatchesPlatform(p);
     if(p.branch_id==null)return false;
-    return vis.indexOf(p.branch_id)>=0;
+    return vis.indexOf(p.branch_id)>=0&&paymentMatchesPlatform(p);
   });
+  
+  // 토스/그랩 분리 통계 (platform='all' 일 때만 의미 있음, 아니어도 표시)
+  var allVisMembers=members.filter(memberIsVisible);
+  var tossMembers=allVisMembers.filter(m=>(m.appType||'toss')==='toss');
+  var grabMembers=allVisMembers.filter(m=>(m.appType||'toss')==='grab');
+  var tossActive=tossMembers.filter(m=>m.status==='approved').length;
+  var grabActive=grabMembers.filter(m=>m.status==='approved').length;
+  
   var appr=visMembers.filter(function(m){return m.status==='approved';}).length;
   var pend=visMembers.filter(function(m){return m.status==='pending';}).length;
   var exp3=visMembers.filter(function(m){var n=dl(m.expire);return m.status==='approved'&&n!==null&&n>=0&&n<=3;}).length;
@@ -912,10 +930,23 @@ function renderDash(){
   
   var html='<div class="ph"><div><h1>대시보드</h1><p>'+scopeLabel+'</p></div><div><button class="btn btn-g" onclick="loadAllData().then(()=>{navigate(\'dashboard\');showToast(\'새로고침 완료\',\'success\');})">🔄 새로고침</button></div></div>';
   html+='<div class="sgrid sg4">'
-  +'<div class="scard" style="cursor:pointer" onclick="navigate(\'members\')"><div class="scard-top"><div class="slabel">전체 회원</div><div class="sicon" style="background:rgba(41,128,185,.12);color:var(--blue)">👥</div></div><div class="sval">'+visMembers.length+'</div><div class="ssub">승인 '+appr+' / 대기 '+pend+'</div></div>'
+  +'<div class="scard" style="cursor:pointer" onclick="navigate(\'members\')"><div class="scard-top"><div class="slabel">전체 회원'+(platform!=='all'?' ('+(platform==='toss'?'토스':'그랩')+')':'')+'</div><div class="sicon" style="background:rgba(41,128,185,.12);color:var(--blue)">👥</div></div><div class="sval">'+visMembers.length+'</div><div class="ssub">승인 '+appr+' / 대기 '+pend+'</div></div>'
   +'<div class="scard" style="cursor:pointer" onclick="memberFilter=\'pending\';navigate(\'members\')"><div class="scard-top"><div class="slabel">승인 대기</div><div class="sicon" style="background:rgba(240,180,41,.12);color:var(--accent)">⏳</div></div><div class="sval" style="color:var(--accent)">'+pend+'</div></div>'
   +'<div class="scard" style="cursor:pointer;'+(exp3>0?'border-top:2px solid var(--red)':'')+'" onclick="licenseExpireOnly=true;navigate(\'license\')"><div class="scard-top"><div class="slabel">3일 내 만료</div><div class="sicon" style="background:rgba(231,76,60,.12);color:var(--red)">⏰</div></div><div class="sval" style="color:'+(exp3>0?'var(--red)':'var(--text2)')+'">'+exp3+'</div></div>'
   +'<div class="scard" style="cursor:pointer;border-top:2px solid var(--accent)" onclick="navigate(\'payment\')"><div class="scard-top"><div class="slabel">이번 달 매출</div><div class="sicon" style="background:rgba(240,180,41,.12);color:var(--accent)">📅</div></div><div class="sval" style="color:var(--accent)">₩'+thisMonthRev.toLocaleString()+'</div><div class="ssub">누적 ₩'+totalRev.toLocaleString()+'</div></div>'
+  +'</div>'
+  // ★ 토스/그랩 분리 카드 (전체 통합 시점에서도 항상 표시)
+  +'<div class="sgrid sg2" style="margin-top:12px">'
+  +'<div class="scard" style="cursor:pointer;border-top:2px solid var(--toss)" onclick="setPlatform(\'toss\',document.querySelector(\'.ptab:nth-child(2)\'))"><div class="scard-top"><div class="slabel">🚗 토스 회원</div><div class="sicon" style="background:rgba(0,100,255,.12);color:var(--toss)">🚗</div></div>'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:6px">'
+    +'<div><div style="font-size:10px;color:var(--text3)">전체</div><div style="font-size:20px;font-weight:700;color:var(--toss)">'+tossMembers.length+'명</div></div>'
+    +'<div style="text-align:right"><div style="font-size:10px;color:var(--text3)">활성 (승인)</div><div style="font-size:14px;font-weight:600;color:var(--green)">'+tossActive+'명</div></div>'
+    +'</div></div>'
+  +'<div class="scard" style="cursor:pointer;border-top:2px solid var(--grab)" onclick="setPlatform(\'grab\',document.querySelector(\'.ptab:nth-child(3)\'))"><div class="scard-top"><div class="slabel">🛵 그랩 회원</div><div class="sicon" style="background:rgba(0,177,79,.12);color:var(--grab)">🛵</div></div>'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:6px">'
+    +'<div><div style="font-size:10px;color:var(--text3)">전체</div><div style="font-size:20px;font-weight:700;color:var(--grab)">'+grabMembers.length+'명</div></div>'
+    +'<div style="text-align:right"><div style="font-size:10px;color:var(--text3)">활성 (승인)</div><div style="font-size:14px;font-weight:600;color:var(--green)">'+grabActive+'명</div></div>'
+    +'</div></div>'
   +'</div>'
   +'<div class="cgrid"><div class="card"><div class="card-head"><div class="card-title">월별 매출 추이</div><span class="badge bg-yellow">KRW</span></div><div class="card-body"><canvas id="salesChart" height="170"></canvas></div></div>'
   +'<div class="card"><div class="card-head"><div class="card-title">현황 / 알림</div></div><div class="card-body">'
@@ -957,8 +988,8 @@ function initChart(){
 //   MEMBERS — Supabase 연동
 // =====================================================================
 function renderMembers(){
-  // ★ 권한 격리: 본인 산하 회원만
-  var visMembers=members.filter(memberIsVisible);
+  // ★ 권한 격리 + platform 필터
+  var visMembers=members.filter(memberIsVisible).filter(memberMatchesPlatform);
   
   // 가입일 필터
   var list=visMembers.filter(function(m){
@@ -1186,7 +1217,7 @@ async function saveMemberInfo(id){
 // =====================================================================
 function renderLicense(){
   // ★ 권한 격리: 본인 산하 회원만
-  var visAll=members.filter(memberIsVisible);
+  var visAll=members.filter(memberIsVisible).filter(memberMatchesPlatform);
   
   // 통계용 (필터 적용 전)
   var exp3Count=visAll.filter(function(m){var n=dl(m.expire);return m.status==='approved'&&n!==null&&n>=0&&n<=3;}).length;
@@ -1673,12 +1704,12 @@ document.addEventListener('scroll',function(){document.querySelectorAll('.cal-dr
 //   PAYMENT
 // =====================================================================
 function renderPayment(){
-  // ★ 권한 격리: 본인 산하 회원의 결제만
+  // ★ 권한 격리: 본인 산하 회원의 결제만 + platform 필터
   var visPayments=payments.filter(p=>{
     var vis=getVisibleBranchIds();
-    if(vis===null)return true;
+    if(vis===null)return paymentMatchesPlatform(p);
     if(p.branch_id==null)return false;
-    return vis.indexOf(p.branch_id)>=0;
+    return vis.indexOf(p.branch_id)>=0&&paymentMatchesPlatform(p);
   });
   var list=visPayments.filter(function(p){return payFilter==='all'||p.status===payFilter;});
   var pend=visPayments.filter(function(p){return p.status==='pending';}).length;
@@ -2010,10 +2041,11 @@ function renderRevenue(){
   var fromDate=revDateFrom||lastNDaysStart(30);
   var toDate=revDateTo||new Date();
   
-  // 기간 필터된 결제 매출
+  // 기간 필터된 결제 매출 (★ platform 필터 추가)
   var memberRevenue={};
   payments.filter(p=>{
     if(p.status!=='approved')return false;
+    if(!paymentMatchesPlatform(p))return false;
     var d=p.processedAt?new Date(p.processedAt):pd(p.date);
     return d&&d>=startOfDay(fromDate)&&d<=endOfDay(toDate);
   }).forEach(p=>{
